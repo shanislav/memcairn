@@ -20,8 +20,8 @@ import_app = typer.Typer(no_args_is_help=True, help="Import from other memory fo
 app.add_typer(token_app, name="token")
 app.add_typer(import_app, name="import")
 
-DEFAULT_DB = Path(os.environ.get("ENGRAMMAR_DB", Path.home() / ".engrammar" / "engrammar.db"))
-DbOpt = typer.Option(DEFAULT_DB, "--db", envvar="ENGRAMMAR_DB", help="SQLite database path.")
+DEFAULT_DB = Path(os.environ.get("MEMCAIRN_DB", Path.home() / ".memcairn" / "memcairn.db"))
+DbOpt = typer.Option(DEFAULT_DB, "--db", envvar="MEMCAIRN_DB", help="SQLite database path.")
 
 
 def open_store(db: Path) -> Store:
@@ -34,13 +34,13 @@ def serve(
     transport: str = typer.Option("stdio", help="stdio or http"),
     host: str = typer.Option("127.0.0.1"),
     port: int = typer.Option(8765),
-    public_url: str = typer.Option(None, envvar="ENGRAMMAR_PUBLIC_URL",
+    public_url: str = typer.Option(None, envvar="MEMCAIRN_PUBLIC_URL",
                                    help="Base URL clients use (http mode); enables token auth."),
     allowed_host: list[str] = typer.Option(None, help="Extra allowed Host headers (http mode)."),
     no_auth: bool = typer.Option(False, help="Disable token auth in http mode (trusted LAN only)."),
-    compat: bool = typer.Option(False, envvar="ENGRAMMAR_COMPAT",
+    compat: bool = typer.Option(False, envvar="MEMCAIRN_COMPAT",
                                 help="Also expose server-memory compatible tools."),
-    client: str = typer.Option(None, envvar="ENGRAMMAR_CLIENT", help="Client name (stdio)."),
+    client: str = typer.Option(None, envvar="MEMCAIRN_CLIENT", help="Client name (stdio)."),
 ):
     """Run the MCP server."""
     store = open_store(db)
@@ -67,7 +67,7 @@ def token_add(name: str, scope: str = typer.Option("global", help="Default scope
               db: Path = DbOpt):
     """Create a client and print its token (shown once)."""
     store = open_store(db)
-    token = "egr_" + secrets.token_urlsafe(32)
+    token = "mcn_" + secrets.token_urlsafe(32)
     with store._tx():
         store.scope_id(scope)
         store.conn.execute(

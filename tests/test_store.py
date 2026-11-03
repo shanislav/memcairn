@@ -2,11 +2,11 @@ import json
 
 import pytest
 
-from engrammar import format
-from engrammar.db import connect
-from engrammar.importers import import_server_memory
-from engrammar.secretscan import SecretError
-from engrammar.store import Conflict, Store, normalize_type
+from memcairn import format
+from memcairn.db import connect
+from memcairn.importers import import_server_memory
+from memcairn.secretscan import SecretError
+from memcairn.store import Conflict, Store, normalize_type
 
 
 @pytest.fixture

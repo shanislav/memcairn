@@ -3,10 +3,10 @@ import json
 import anyio
 import pytest
 
-from engrammar import format
-from engrammar.db import connect
-from engrammar.server import build
-from engrammar.store import Store
+from memcairn import format
+from memcairn.db import connect
+from memcairn.server import build
+from memcairn.store import Store
 
 
 def text_of(result) -> str:
@@ -45,10 +45,10 @@ def test_result_not_duplicated(server):
 
 
 def test_roundtrip(server):
-    out = call(server, "remember", content="Engrammar uses SQLite FTS5", entity="engrammar")
+    out = call(server, "remember", content="Memcairn uses SQLite FTS5", entity="memcairn")
     assert out.startswith("ok m1")
     hits = call(server, "recall", query="sqlite")
-    assert "m1 · fact · engrammar" in hits
+    assert "m1 · fact · memcairn" in hits
     full = call(server, "get", ids=["m1"], history=True)
     assert "by=test" in full and "create" in full
     assert "error" in call(server, "get", ids=["m99"])

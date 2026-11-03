@@ -60,11 +60,11 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             issuer_url=auth_url, resource_server_url=auth_url.rstrip("/") + "/mcp",
             validate_token_resource=False,
         )
-    mcp = MCPServer("engrammar", version=__version__, instructions=INSTRUCTIONS, **kwargs)
+    mcp = MCPServer("memcairn", version=__version__, instructions=INSTRUCTIONS, **kwargs)
 
     def client() -> str | None:
         tok = get_access_token()
-        return tok.client_id if tok else (stdio_client or os.environ.get("ENGRAMMAR_CLIENT"))
+        return tok.client_id if tok else (stdio_client or os.environ.get("MEMCAIRN_CLIENT"))
 
     def default_scope(scope: str | None) -> str:
         if scope:

@@ -1,6 +1,9 @@
-# Engrammar
+# Memcairn
 
 Self-hosted long-term memory for AI agents, served over MCP.
+
+*A cairn is the pile of stones hikers leave to mark a trail. Every agent session adds a
+stone; the next one finds the way.*
 
 One server, many clients: several Claude Code instances, server-side agents and
 claude.ai can share the same memory without overwriting each other.
@@ -23,7 +26,7 @@ claude.ai can share the same memory without overwriting each other.
 On 998 real facts with 50 queries, compared with the official `server-memory`
 ([details and caveats](BENCHMARK.md), [feature comparison](COMPARISON.md)):
 
-| | official | Engrammar |
+| | official | Memcairn |
 |---|---|---|
 | hit@5 | 24% | **98%** |
 | tokens per query (mean / max) | 2,055 / 35,765 | **221 / 449** |
@@ -35,28 +38,28 @@ The full guide covers server deployment, connecting machines, multiple instances
 agent instructions, migration and troubleshooting: **[docs/setup.md](docs/setup.md)**.
 
 ```bash
-uv tool install git+https://github.com/shanislav/engrammar
-engrammar import server-memory ~/.claude/memory.json   # optional: migrate old memory
+uv tool install git+https://github.com/shanislav/memcairn
+memcairn import server-memory ~/.claude/memory.json   # optional: migrate old memory
 ```
 
 ### Local (stdio)
 
 ```bash
-claude mcp add engrammar -- engrammar serve --client my-laptop
+claude mcp add memcairn -- memcairn serve --client my-laptop
 ```
 
 ### Central server (HTTP, many clients)
 
 ```bash
-engrammar token add laptop          # prints a token once
-engrammar serve --transport http --host 0.0.0.0 --port 8765 \
+memcairn token add laptop          # prints a token once
+memcairn serve --transport http --host 0.0.0.0 --port 8765 \
     --public-url https://memory.example.com
 ```
 
 Put it behind TLS (nginx/caddy) and keep it on a private network. On each client:
 
 ```bash
-claude mcp add --transport http engrammar https://memory.example.com/mcp \
+claude mcp add --transport http memcairn https://memory.example.com/mcp \
     --header "Authorization: Bearer <token>"
 ```
 

@@ -1,4 +1,4 @@
-# Engrammar — design
+# Memcairn — design
 
 Long-term memory server for AI agents over MCP. One self-hosted server, many clients
 (several Claude Code instances on one PC, a server-side agent, claude.ai web/mobile).
@@ -15,7 +15,7 @@ Single SQLite file, no external services required.
    versioned, everything can be undone.
 5. **Transparent.** Every recall result says why it was returned and where it came from.
 6. **No lock-in.** Human-readable markdown mirror, import/export of other formats.
-7. **Small ops footprint.** `uvx engrammar serve` or one Docker container. SQLite + local
+7. **Small ops footprint.** `uvx memcairn serve` or one Docker container. SQLite + local
    embedding model on CPU.
 
 Non-goals (for now): multi-tenant SaaS, distributed storage, LLM-mandatory pipelines.
@@ -89,7 +89,7 @@ context has to earn its place. Rules:
 - No `read_graph`-style dump; the compat `read_graph` is capped and paginated.
 
 **Measured, not assumed**
-- Every response size is logged; `engrammar stats` shows tokens per call type.
+- Every response size is logged; `memcairn stats` shows tokens per call type.
 - The eval suite tracks recall quality *and* tokens returned per query; a change that
   improves quality but blows the budget fails the check.
 
@@ -186,7 +186,7 @@ Compatibility mode (flag): official server-memory tool names (`create_entities`,
 `add_observations`, `search_nodes`, `open_nodes`, `create_relations`, `delete_*`,
 `read_graph` with a size cap) so existing prompts keep working.
 
-Resources: `engrammar://context/{scope}`, `engrammar://entity/{name}`.
+Resources: `memcairn://context/{scope}`, `memcairn://entity/{name}`.
 Prompts: `recall-for-task`, `save-session`.
 
 Transports: stdio and Streamable HTTP (built on the official `mcp` Python SDK so spec
@@ -196,7 +196,7 @@ claude.ai custom connectors in a later phase.
 
 ## Interfaces besides MCP
 
-- CLI: `engrammar serve | import | export | dream | review | token add/revoke | doctor`
+- CLI: `memcairn serve | import | export | dream | review | token add/revoke | doctor`
 - Markdown mirror: export/import folder, one file per entity with facts as list items;
   Claude Code memory-dir sync.
 - Web dashboard (later): search, browse, graph, history/undo, review queue, stats.
@@ -212,7 +212,7 @@ claude.ai custom connectors in a later phase.
 
 Python 3.11+, `mcp` SDK (FastMCP), stdlib `sqlite3` with FTS5, `sqlite-vec`,
 `fastembed` (optional extra), Starlette/uvicorn for HTTP, Typer CLI, pytest.
-Packaging: PyPI (`uvx engrammar`), Docker image.
+Packaging: PyPI (`uvx memcairn`), Docker image.
 
 ## Roadmap
 

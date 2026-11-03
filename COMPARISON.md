@@ -1,15 +1,15 @@
-# How Engrammar compares
+# How Memcairn compares
 
 A feature comparison with other long-term memory systems for agents, as of November 2026.
 For measured numbers against the official MCP memory server, see
 [BENCHMARK.md](BENCHMARK.md). Star counts are approximate.
 
-Engrammar's own column shows the current state as of phase 1; items marked *(planned)*
+Memcairn's own column shows the current state as of phase 1; items marked *(planned)*
 come from the [roadmap](DESIGN.md#roadmap).
 
 ## At a glance
 
-| | Engrammar | server-memory (official) | Mem0 / OpenMemory | Graphiti / Zep | Basic Memory | mcp-memory-service | Hindsight | Letta |
+| | Memcairn | server-memory (official) | Mem0 / OpenMemory | Graphiti / Zep | Basic Memory | mcp-memory-service | Hindsight | Letta |
 |---|---|---|---|---|---|---|---|---|
 | License | MIT | MIT | Apache-2.0 | Apache-2.0 | AGPL-3.0 | Apache-2.0 | MIT | Apache-2.0 |
 | Storage | SQLite file | JSONL file | Postgres + vector DB | Neo4j / FalkorDB | Markdown + SQLite | SQLite-vec / Cloudflare | Postgres + pgvector | Postgres / git files |
@@ -27,7 +27,7 @@ come from the [roadmap](DESIGN.md#roadmap).
 | Self-hosting footprint | one Python process | one Node process | several containers | graph DB + LLM | one process | one process | Postgres + LLM | server |
 | Human-editable mirror | *(planned)* | JSON | no | no | **native markdown** | no | no | MemFS markdown |
 
-## What Engrammar is for
+## What Memcairn is for
 
 You want one memory shared by several agents or instances. Writes should be free and
 instant. Recall must not eat the context window. Nothing should ever be lost silently.
@@ -37,7 +37,7 @@ instant. Recall must not eat the context window. Nothing should ever be lost sil
 - **Semantic recall.** Without the planned vector index, a query with no words in common
   with the stored text ("deploy" vs a fact that says "rollout") can miss. Mem0, Hindsight
   and Graphiti handle this today.
-- **Automatic knowledge extraction.** Engrammar stores what the agent decides to store.
+- **Automatic knowledge extraction.** Memcairn stores what the agent decides to store.
   Systems that run an LLM on every message (Mem0, Graphiti, supermemory) extract facts on
   their own, at the cost of LLM calls, latency and occasional hallucinated facts.
 - **Polished UI.** Basic Memory (Obsidian) and mcp-memory-service (dashboard) are ahead.

@@ -1,4 +1,4 @@
-"""Benchmark: official @modelcontextprotocol/server-memory vs Engrammar on the same data.
+"""Benchmark: official @modelcontextprotocol/server-memory vs Memcairn on the same data.
 
 Both servers run as real MCP subprocesses over stdio, on a *copy* of the memory file.
 
@@ -26,9 +26,9 @@ import anyio
 from mcp import Client, StdioServerParameters
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from engrammar.db import connect  # noqa: E402
-from engrammar.importers import import_server_memory  # noqa: E402
-from engrammar.store import Store  # noqa: E402
+from memcairn.db import connect  # noqa: E402
+from memcairn.importers import import_server_memory  # noqa: E402
+from memcairn.store import Store  # noqa: E402
 
 HIT = re.compile(r"^m\d+ · ")
 OFFICIAL_PKG = "@modelcontextprotocol/server-memory@2025.9.25"
@@ -61,7 +61,7 @@ def official_rank(text: str, expect: list[str]) -> int | None:
     return None
 
 
-def engrammar_rank(text: str, expect: list[str]) -> int | None:
+def memcairn_rank(text: str, expect: list[str]) -> int | None:
     hits = [line for line in text.splitlines() if HIT.match(line)]
     for i, line in enumerate(hits, 1):
         parts = line.split(" · ")
@@ -70,7 +70,7 @@ def engrammar_rank(text: str, expect: list[str]) -> int | None:
     return None
 
 
-def engrammar_count(text: str) -> int:
+def memcairn_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if HIT.match(line))
 
 
@@ -104,9 +104,9 @@ async def run_official(memory_copy: Path, queries: list[dict]) -> dict:
     return {"tool_list_tokens": cost, "queries": out, "session_start_tokens": None}
 
 
-async def run_engrammar(db: Path, queries: list[dict]) -> dict:
+async def run_memcairn(db: Path, queries: list[dict]) -> dict:
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", "engrammar.cli", "serve", "--db", str(db)],
+        command=sys.executable, args=["-m", "memcairn.cli", "serve", "--db", str(db)],
         env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
              "PYTHONIOENCODING": "utf-8"})
     out = []
@@ -116,7 +116,7 @@ async def run_engrammar(db: Path, queries: list[dict]) -> dict:
         for q in queries:
             t0 = time.perf_counter()
             text = text_of(await client.call_tool("recall", {"query": q["q"]}))
-            rank = engrammar_rank(text, q["expect"])
+            rank = memcairn_rank(text, q["expect"])
             total, deep_used = est(text), False
             # The realistic flow: an agent follows the low-confidence hint once.
             if "try mode=deep" in text:
@@ -124,11 +124,11 @@ async def run_engrammar(db: Path, queries: list[dict]) -> dict:
                 total += est(deep)
                 deep_used = True
                 if rank is None:
-                    rank = engrammar_rank(deep, q["expect"])
+                    rank = memcairn_rank(deep, q["expect"])
                 text = deep
             ms = (time.perf_counter() - t0) * 1000
             out.append({"tokens": total, "ms": ms, "rank": rank, "deep": deep_used,
-                        "results": engrammar_count(text)})
+                        "results": memcairn_count(text)})
     return {"tool_list_tokens": cost, "queries": out, "session_start_tokens": est(ctx)}
 
 
@@ -199,18 +199,18 @@ def main() -> None:
         tmp = Path(tmp)
         copy = tmp / "memory.json"
         shutil.copyfile(a.memory_json, copy)  # never touch the original
-        db = tmp / "engrammar.db"
+        db = tmp / "memcairn.db"
         conn = connect(db)
         data = import_server_memory(Store(conn), copy)
         conn.close()
         official = anyio.run(run_official, copy, queries)
-        engr = anyio.run(run_engrammar, db, queries)
+        engr = anyio.run(run_memcairn, db, queries)
 
     summaries = [summarize("server-memory (official)", official, queries),
-                 summarize("Engrammar", engr, queries)]
+                 summarize("Memcairn", engr, queries)]
     report = {"data": data, "summaries": summaries,
               "per_query": [{"q": q["q"], "cat": q.get("cat"), "expect": q["expect"],
-                             "official": o, "engrammar": e}
+                             "official": o, "memcairn": e}
                             for q, o, e in zip(queries, official["queries"], engr["queries"])]}
     a.out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(markdown(summaries, len(queries), data))
