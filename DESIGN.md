@@ -132,6 +132,18 @@ client       id, name, token_hash, default_scope_id, created_at, last_seen_at
 6. Cut to `max_tokens` budget; each hit returns id, content, scope, entity, score
    breakdown, provenance.
 
+### Deep search (fallback when normal recall finds nothing)
+
+Same `recall` tool with `mode="deep"` — no extra tool, so no extra fixed token cost.
+Normal recall answers with a one-line hint (`low confidence — try mode=deep`) when its
+best score is weak. Deep mode widens the net instead of the output:
+- query expansion: synonyms/aliases, entity aliases, cross-language match via the
+  multilingual embedding model; optional LLM query rewrite if an LLM is configured;
+- fuzzy / trigram matching for typos and diacritics variants;
+- graph traversal 1–2 hops from matched entities and relations;
+- includes superseded, invalidated and expired facts (marked as such) and raw episode text;
+- larger candidate pool, but output stays compact (default budget ~1 500 tokens).
+
 Embeddings: fastembed with a multilingual model (memories are not English-only),
 lazily computed on write in a background worker; FTS works without them.
 
@@ -161,7 +173,7 @@ Tools (deterministic order, annotated):
 
 | Tool | Annotation |
 |---|---|
-| `recall` (query, filters, max_tokens, explain) — compact hits | readOnly |
+| `recall` (query, filters, mode=normal\|deep, max_tokens, explain) — compact hits | readOnly |
 | `get` (ids) — full text of selected hits | readOnly |
 | `get_context` (scope) — pinned + top facts within budget | readOnly |
 | `remember` | idempotent with key |
@@ -208,7 +220,7 @@ Packaging: PyPI (`uvx engrammar`), Docker image.
 |---|---|
 | 0 | Repo skeleton, schema + migrations, CI, tests |
 | 1 | Core store, FTS recall, remember/update/supersede/forget/history, stdio + HTTP with bearer tokens, import `memory.json`, compatibility tools → deploy for own use |
-| 2 | Embeddings + hybrid RRF retrieval, near-duplicate detection, scopes with inheritance, temporal queries |
+| 2 | Embeddings + hybrid RRF retrieval, near-duplicate detection, scopes with inheritance, temporal queries, deep search mode |
 | 3 | Markdown mirror + Claude Code memory-dir sync |
 | 4 | Consolidation jobs + review queue, optional LLM backend |
 | 5 | Web dashboard, OAuth for claude.ai connectors |
