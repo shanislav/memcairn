@@ -102,6 +102,20 @@ and can write at the same time.
 **Name the server `memory`** if you're replacing the official memory server. The tool
 names become `mcp__memory__recall` and so on, which is what the snippet below assumes.
 
+> **Remove every other server called `memory` first.** Claude Code resolves a name
+> clash in favour of the more specific scope, so a project-level `.mcp.json` (or a
+> project entry in `~/.claude.json`) that still starts the old `server-memory` silently
+> wins over your user-level Engrammar entry. The agent then sees `search_nodes` instead of
+> `recall`. Find leftovers with:
+>
+> ```bash
+> grep -rl --include=.mcp.json '"memory"' ~ 2>/dev/null
+> claude mcp list      # run inside each project; check what "memory" points to
+> ```
+>
+> If you'd rather not hunt for them, register Engrammar under its own name (`engrammar`)
+> and write `mcp__engrammar__…` in your agent instructions.
+
 ## 3. Tell the agent how to use it
 
 The tool descriptions are deliberately short, to keep the per-turn token cost low.
@@ -166,6 +180,12 @@ docker compose exec engrammar engrammar export /data/export.json
   ```
   192.168.1.10  memory.example.com
   ```
+  On Windows (admin PowerShell), start the appended text with a line break: hosts files
+  often don't end with one, and a plain `Add-Content` would glue your entry onto the
+  last line:
+  ```powershell
+  Add-Content C:\Windows\System32\drivers\etc\hosts "`r`n192.168.1.10  memory.example.com"
+  ```
   The TLS certificate stays valid because the name doesn't change. This is simpler and
   safer than pushing the VPN's DNS server to all queries.
 - Writes that look like credentials (private keys, API keys, `password=...`) are
@@ -197,6 +217,8 @@ tool-list cost, so updating the prompts (section 3) is the better fix.
 
 | Symptom | Cause |
 |---|---|
+| Agent has `search_nodes`/`read_graph` instead of `recall` | Another server named `memory` (old `server-memory` in a project `.mcp.json`) wins the name clash; see section 2. |
+| `could not resolve host` while public DNS works | Broken hosts entry, e.g. glued onto the previous line (`0.0.0.0 example.com192.168.1.10 memory…`); see section 6. |
 | `401` | Missing or wrong token, or a revoked client. |
 | `403` from the proxy | Client IP not in the proxy allowlist (often the split-VPN case in section 6). |
 | `421` / `Invalid Host header` | `ENGRAMMAR_PUBLIC_URL` hostname doesn't match the URL the client uses, or the proxy doesn't pass `Host`. |
