@@ -75,6 +75,21 @@ def fold(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+# Function words that carry no topic (sk/cs/en); dropped from queries, not from stored text.
+STOPWORDS = frozenset("""
+a aj ako ale alebo by co ci do ho je jak jaky ja k kde kdy ked ktory ktora ktore ku mi na nad
+nie o od po pod pre preco proc pri s sa si so su ta tak tam ten to tu uz v ve vo z za ze zo
+an and are can do does for from how in is it of on or the this to was what when where which
+who why with
+""".split())
+
+
+def query_terms(text: str) -> list[str]:
+    all_terms = terms(text)
+    content = [t for t in all_terms if t not in STOPWORDS]
+    return content or all_terms
+
+
 def terms(text: str, limit: int = 16) -> list[str]:
     seen: list[str] = []
     for t in re.findall(r"\w+", fold(text)):
@@ -491,7 +506,7 @@ class Store:
             where.append("e.name = ? COLLATE NOCASE")
             args.append(entity.strip())
 
-        qterms = terms(query)
+        qterms = query_terms(query)
         base = """SELECT m.*, e.name AS entity_name, s.key AS scope_key {rank} FROM {src}
                   LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id"""
         if qterms:
@@ -582,7 +597,8 @@ class Store:
         ).fetchall()
 
     def stats(self) -> dict[str, int]:
-        q = lambda sql: self.conn.execute(sql).fetchone()[0]
+        def q(sql):
+            return self.conn.execute(sql).fetchone()[0]
         return {
             "memories": q("SELECT count(*) FROM memory WHERE deleted_at IS NULL "
                           "AND superseded_by IS NULL"),

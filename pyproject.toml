@@ -26,5 +26,10 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+# explicit so a user-level ruff config can't change the result
+select = ["E4", "E7", "E9", "F", "B", "UP", "SIM"]
+ignore = ["SIM905", "B905"]  # word lists read better as a split string; zip lengths are equal by construction
+
 [tool.ruff.lint.per-file-ignores]
 "src/engrammar/cli.py" = ["B008"]  # typer.Option in defaults is the typer idiom

@@ -18,6 +18,17 @@ claude.ai can share the same memory without overwriting each other.
 - **Transparent** — every result can show its score breakdown and provenance.
 - **No lock-in** — importer for `@modelcontextprotocol/server-memory`, JSON export.
 
+## Benchmark
+
+On 998 real facts with 50 queries, compared with the official `server-memory`
+([details and caveats](BENCHMARK.md), [feature comparison](COMPARISON.md)):
+
+| | official | Engrammar |
+|---|---|---|
+| hit@5 | 24% | **98%** |
+| tokens per query (mean / max) | 2,055 / 35,765 | **221 / 449** |
+| tool list (every turn) | 1,247 | **919** |
+
 ## Quick start
 
 ```bash

@@ -58,10 +58,17 @@ def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
            deep: bool) -> str:
     if not result.hits:
         return "no memories found" + ("" if deep else " — try mode=deep or other words")
-    lines = [hit_line(h, explain=explain) for h in result.hits[:limit]]
+    hits = result.hits
+    weak = result.coverage < 0.5
+    if weak:
+        # Don't spend tokens on a page of weak matches: show a few, say so.
+        floor = result.coverage * 0.75
+        hits = [h for h in hits if h.parts.get("coverage", 1.0) >= floor][:3]
+    lines = [hit_line(h, explain=explain) for h in hits[:limit]]
     text = budgeted(lines, max_tokens, "(narrow the query or raise max_tokens)")
-    if not deep and result.coverage < 0.5:
-        text += "\nlow confidence — try mode=deep"
+    if weak:
+        text += ("\nlow confidence — likely not in memory" if deep
+                 else "\nlow confidence — try mode=deep")
     return text
 
 

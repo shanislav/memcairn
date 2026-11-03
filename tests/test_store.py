@@ -36,6 +36,21 @@ def test_low_confidence_hint(store):
     assert "low confidence" in text
 
 
+def test_stopwords_do_not_count_as_matches(store):
+    store.remember("Plex runs natively on the home server")
+    res = store.recall("recept na sviečkovú")  # only "na" would match
+    assert res.coverage < 0.5
+
+
+def test_weak_results_are_trimmed(store):
+    for i in range(10):
+        store.remember(f"server note {i} about backups")
+    text = format.recall(store.recall("server kubernetes autoscaling"), max_tokens=600,
+                         limit=5, explain=False, deep=False)
+    assert text.count("\nm") <= 3
+    assert "low confidence" in text
+
+
 def test_supersede_keeps_history(store):
     old, _ = store.remember("Lumina prod runs upstream", entity="Lumina")
     new = store.update(old["id"], content="Lumina prod runs the fork master", supersede=True)
