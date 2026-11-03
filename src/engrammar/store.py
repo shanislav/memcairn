@@ -1,0 +1,595 @@
+"""Memory store: all reads and writes go through here."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import sqlite3
+import threading
+import unicodedata
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+from . import secretscan
+from .db import now
+
+MEMORY_TYPES = ("user", "feedback", "project", "reference", "fact", "todo", "decision", "howto")
+LONG_CONTENT = 500
+
+# Entity type aliases folded together on write (lowercased keys).
+TYPE_ALIASES = {
+    "projekt": "project",
+    "web/projekt": "project",
+    "servers": "server",
+    "configuration": "config",
+    "rules": "rule",
+    "pravidlo": "rule",
+    "pravidla": "rule",
+    "zistenie": "finding",
+    "infrastruktura": "infrastructure",
+    "architektura": "architecture",
+    "claude instancia": "claude-instance",
+}
+
+
+class NotFound(LookupError):
+    pass
+
+
+class Conflict(RuntimeError):
+    pass
+
+
+@dataclass
+class Hit:
+    memory: sqlite3.Row
+    entity: str | None
+    score: float
+    parts: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def status(self) -> str | None:
+        m = self.memory
+        if m["deleted_at"]:
+            return "forgotten"
+        if m["superseded_by"]:
+            return "old"
+        t = now()
+        if m["expires_at"] and m["expires_at"] <= t:
+            return "expired"
+        if m["valid_to"] and m["valid_to"] <= t:
+            return "ended"
+        return None
+
+
+@dataclass
+class RecallResult:
+    hits: list[Hit]
+    coverage: float  # best fraction of query terms matched by a single hit
+
+
+def fold(text: str) -> str:
+    """Lowercase and strip diacritics."""
+    nfkd = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
+def terms(text: str, limit: int = 16) -> list[str]:
+    seen: list[str] = []
+    for t in re.findall(r"\w+", fold(text)):
+        if len(t) >= 2 and t not in seen:
+            seen.append(t)
+    return seen[:limit]
+
+
+def stem(term: str) -> str:
+    # Crude, language-agnostic: drop inflection endings of longer words (obedu -> obed).
+    return term[: max(4, len(term) - 2)] if len(term) >= 5 else term
+
+
+def normalize_type(t: str | None) -> str:
+    if not t:
+        return "thing"
+    key = t.strip().lower()
+    return TYPE_ALIASES.get(key, key)
+
+
+def parse_id(ref: str | int) -> int:
+    s = str(ref).strip().lower().lstrip("m#")
+    if not s.isdigit():
+        raise NotFound(f"bad memory id: {ref}")
+    return int(s)
+
+
+class Store:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self.lock = threading.RLock()
+
+    # ---------- helpers ----------
+
+    def _tx(self):
+        store = self
+
+        class _Tx:
+            def __enter__(self):
+                store.lock.acquire()
+                store.conn.execute("BEGIN IMMEDIATE")
+
+            def __exit__(self, exc_type, *_):
+                try:
+                    store.conn.execute("ROLLBACK" if exc_type else "COMMIT")
+                finally:
+                    store.lock.release()
+
+        return _Tx()
+
+    def scope_id(self, key: str | None, create: bool = True) -> int:
+        key = (key or "global").strip()
+        row = self.conn.execute("SELECT id FROM scope WHERE key = ?", (key,)).fetchone()
+        if row:
+            return row["id"]
+        if not create:
+            raise NotFound(f"unknown scope: {key}")
+        kind = key.split(":", 1)[0] if ":" in key else "custom"
+        parent = self.scope_id("global")
+        cur = self.conn.execute(
+            "INSERT INTO scope (key, kind, parent_id) VALUES (?, ?, ?)", (key, kind, parent)
+        )
+        return cur.lastrowid
+
+    def scope_chain(self, key: str | None) -> list[int]:
+        """The scope and its ancestors; recall sees all of them."""
+        try:
+            sid: int | None = self.scope_id(key, create=False)
+        except NotFound:
+            sid = self.scope_id("global")
+        chain = []
+        while sid is not None and sid not in chain:
+            chain.append(sid)
+            row = self.conn.execute("SELECT parent_id FROM scope WHERE id = ?", (sid,)).fetchone()
+            sid = row["parent_id"] if row else None
+        return chain
+
+    def find_entity(self, name: str, scope: str | None = None) -> sqlite3.Row | None:
+        chain = self.scope_chain(scope)
+        q = f"""SELECT * FROM entity WHERE name = ? AND deleted_at IS NULL
+                AND scope_id IN ({",".join("?" * len(chain))})"""
+        rows = self.conn.execute(q, (name.strip(), *chain)).fetchall()
+        # Prefer the most specific scope.
+        rows.sort(key=lambda r: chain.index(r["scope_id"]))
+        return rows[0] if rows else None
+
+    def entity_id(self, name: str, scope: str | None, type: str | None = None) -> int:
+        row = self.find_entity(name, scope)
+        if row:
+            if type and row["type"] == "thing":
+                self.conn.execute(
+                    "UPDATE entity SET type = ?, updated_at = ? WHERE id = ?",
+                    (normalize_type(type), now(), row["id"]),
+                )
+            return row["id"]
+        t = now()
+        cur = self.conn.execute(
+            "INSERT INTO entity (scope_id, name, type, created_at, updated_at) VALUES (?,?,?,?,?)",
+            (self.scope_id(scope), name.strip(), normalize_type(type), t, t),
+        )
+        return cur.lastrowid
+
+    def _row(self, mid: int) -> sqlite3.Row:
+        row = self.conn.execute(
+            """SELECT m.*, e.name AS entity_name, s.key AS scope_key FROM memory m
+               LEFT JOIN entity e ON e.id = m.entity_id
+               JOIN scope s ON s.id = m.scope_id WHERE m.id = ?""",
+            (mid,),
+        ).fetchone()
+        if not row:
+            raise NotFound(f"m{mid} not found")
+        return row
+
+    def _snapshot(self, mid: int, op: str, client: str | None) -> None:
+        row = self._row(mid)
+        snap = dict(row)
+        self.conn.execute(
+            """INSERT INTO memory_history (memory_id, version, changed_at, client, op, snapshot)
+               VALUES (?,?,?,?,?,?)""",
+            (mid, row["version"], now(), client, op, json.dumps(snap, ensure_ascii=False)),
+        )
+
+    def _index(self, mid: int) -> None:
+        row = self._row(mid)
+        self.conn.execute("DELETE FROM memory_fts WHERE rowid = ?", (mid,))
+        if row["deleted_at"]:
+            return
+        tags = " ".join(json.loads(row["tags"]))
+        self.conn.execute(
+            "INSERT INTO memory_fts (rowid, content, tags, entity) VALUES (?,?,?,?)",
+            (mid, row["content"], tags, row["entity_name"] or ""),
+        )
+
+    def episode(self, scope: str | None, client: str | None, raw: str | None = None) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO episode (scope_id, client, created_at, raw) VALUES (?,?,?,?)",
+            (self.scope_id(scope), client, now(), raw),
+        )
+        return cur.lastrowid
+
+    # ---------- writes ----------
+
+    def remember(
+        self,
+        content: str,
+        *,
+        type: str = "fact",
+        entity: str | None = None,
+        entity_type: str | None = None,
+        tags: list[str] | None = None,
+        importance: float | None = None,
+        pinned: bool = False,
+        scope: str | None = None,
+        valid_from: str | None = None,
+        expires_at: str | None = None,
+        idempotency_key: str | None = None,
+        client: str | None = None,
+        episode_id: int | None = None,
+        recorded_at: str | None = None,
+        check_duplicates: bool = True,
+    ) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
+        content = content.strip()
+        if not content:
+            raise ValueError("content is empty")
+        secretscan.check(content)
+        with self._tx():
+            if idempotency_key:
+                row = self.conn.execute(
+                    "SELECT id FROM memory WHERE client IS ? AND idempotency_key = ?",
+                    (client, idempotency_key),
+                ).fetchone()
+                if row:
+                    return self._row(row["id"]), []
+            sid = self.scope_id(scope)
+            eid = self.entity_id(entity, scope, entity_type) if entity else None
+            t = now()
+            cur = self.conn.execute(
+                """INSERT INTO memory (scope_id, entity_id, type, content, tags, importance,
+                   pinned, valid_from, recorded_at, updated_at, expires_at, episode_id, client,
+                   idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    sid,
+                    eid,
+                    (type or "fact").lower(),
+                    content,
+                    json.dumps(tags or [], ensure_ascii=False),
+                    0.5 if importance is None else max(0.0, min(1.0, importance)),
+                    int(bool(pinned)),
+                    valid_from,
+                    recorded_at or t,
+                    t,
+                    expires_at,
+                    episode_id,
+                    client,
+                    idempotency_key,
+                ),
+            )
+            mid = cur.lastrowid
+            self._index(mid)
+            self._snapshot(mid, "create", client)
+            dups = self.near_duplicates(mid) if check_duplicates else []
+            return self._row(mid), dups
+
+    def near_duplicates(self, mid: int, limit: int = 3, threshold: float = 0.5) -> list[sqlite3.Row]:
+        row = self._row(mid)
+        mine = set(terms(row["content"], limit=64))
+        if not mine:
+            return []
+        query = " OR ".join(f'"{t}"' for t in list(mine)[:16])
+        cands = self.conn.execute(
+            """SELECT m.id, m.content FROM memory_fts JOIN memory m ON m.id = memory_fts.rowid
+               WHERE memory_fts MATCH ? AND m.id != ? AND m.deleted_at IS NULL
+               AND m.superseded_by IS NULL ORDER BY bm25(memory_fts) LIMIT 20""",
+            (query, mid),
+        ).fetchall()
+        out = []
+        for c in cands:
+            theirs = set(terms(c["content"], limit=64))
+            jacc = len(mine & theirs) / len(mine | theirs) if theirs else 0
+            if jacc >= threshold:
+                out.append(self._row(c["id"]))
+        return out[:limit]
+
+    def update(
+        self,
+        ref: str | int,
+        *,
+        content: str | None = None,
+        supersede: bool = False,
+        expected_version: int | None = None,
+        type: str | None = None,
+        entity: str | None = None,
+        tags: list[str] | None = None,
+        importance: float | None = None,
+        pinned: bool | None = None,
+        expires_at: str | None = None,
+        client: str | None = None,
+    ) -> sqlite3.Row:
+        mid = parse_id(ref)
+        if content is not None:
+            content = content.strip()
+            if not content:
+                raise ValueError("content is empty")
+            secretscan.check(content)
+        with self._tx():
+            old = self._row(mid)
+            if old["deleted_at"]:
+                raise Conflict(f"m{mid} is forgotten; restore it first")
+            if old["superseded_by"]:
+                raise Conflict(f"m{mid} was superseded by m{old['superseded_by']}; edit that one")
+            if expected_version is not None and expected_version != old["version"]:
+                raise Conflict(
+                    f"m{mid} is at v{old['version']}, not v{expected_version}. "
+                    f"Current: {old['content']}"
+                )
+            fields = {
+                "content": content if content is not None else old["content"],
+                "type": type.lower() if type else old["type"],
+                "entity_id": self.entity_id(entity, old["scope_key"]) if entity else old["entity_id"],
+                "tags": json.dumps(tags, ensure_ascii=False) if tags is not None else old["tags"],
+                "importance": old["importance"] if importance is None else max(0.0, min(1.0, importance)),
+                "pinned": old["pinned"] if pinned is None else int(pinned),
+                "expires_at": old["expires_at"] if expires_at is None else (expires_at or None),
+            }
+            t = now()
+            if supersede:
+                cur = self.conn.execute(
+                    """INSERT INTO memory (scope_id, entity_id, type, content, tags, importance,
+                       pinned, valid_from, recorded_at, updated_at, expires_at, client)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        old["scope_id"], fields["entity_id"], fields["type"], fields["content"],
+                        fields["tags"], fields["importance"], fields["pinned"], t, t, t,
+                        fields["expires_at"], client,
+                    ),
+                )
+                new_id = cur.lastrowid
+                self.conn.execute(
+                    """UPDATE memory SET valid_to = ?, superseded_by = ?, pinned = 0,
+                       version = version + 1, updated_at = ? WHERE id = ?""",
+                    (t, new_id, t, mid),
+                )
+                self._index(new_id)
+                self._index(mid)
+                self._snapshot(mid, "superseded", client)
+                self._snapshot(new_id, "create", client)
+                return self._row(new_id)
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            self.conn.execute(
+                f"UPDATE memory SET {sets}, version = version + 1, updated_at = ? WHERE id = ?",
+                (*fields.values(), t, mid),
+            )
+            self._index(mid)
+            self._snapshot(mid, "update", client)
+            return self._row(mid)
+
+    def forget(self, ref: str | int, *, reason: str | None = None, undo: bool = False,
+               client: str | None = None) -> sqlite3.Row:
+        mid = parse_id(ref)
+        with self._tx():
+            row = self._row(mid)
+            if undo:
+                if not row["deleted_at"]:
+                    return row
+                self.conn.execute(
+                    "UPDATE memory SET deleted_at = NULL, version = version + 1, updated_at = ? "
+                    "WHERE id = ?", (now(), mid))
+                op = "restore"
+            else:
+                if row["deleted_at"]:
+                    return row
+                self.conn.execute(
+                    "UPDATE memory SET deleted_at = ?, version = version + 1, updated_at = ? "
+                    "WHERE id = ?", (now(), now(), mid))
+                op = f"forget: {reason}" if reason else "forget"
+            self._index(mid)
+            self._snapshot(mid, op, client)
+            return self._row(mid)
+
+    def link(self, from_entity: str, to_entity: str, relation: str, *, scope: str | None = None,
+             remove: bool = False, client: str | None = None) -> bool:
+        """Returns True when something changed."""
+        relation = relation.strip()
+        with self._tx():
+            if remove:
+                a, b = self.find_entity(from_entity, scope), self.find_entity(to_entity, scope)
+                if not a or not b:
+                    return False
+                cur = self.conn.execute(
+                    """UPDATE relation SET deleted_at = ?, valid_to = ? WHERE from_entity = ?
+                       AND to_entity = ? AND type = ? AND deleted_at IS NULL""",
+                    (now(), now(), a["id"], b["id"], relation),
+                )
+                return cur.rowcount > 0
+            a = self.entity_id(from_entity, scope)
+            b = self.entity_id(to_entity, scope)
+            cur = self.conn.execute(
+                """INSERT OR IGNORE INTO relation (scope_id, from_entity, to_entity, type,
+                   valid_from, recorded_at) VALUES (?,?,?,?,?,?)""",
+                (self.scope_id(scope), a, b, relation, now(), now()),
+            )
+            return cur.rowcount > 0
+
+    def forget_entity(self, name: str, *, scope: str | None = None, client: str | None = None) -> int:
+        """Soft-delete an entity with all its memories and relations. Returns memories removed."""
+        ent = self.find_entity(name, scope)
+        if not ent:
+            return 0
+        ids = [r["id"] for r in self.conn.execute(
+            "SELECT id FROM memory WHERE entity_id = ? AND deleted_at IS NULL", (ent["id"],))]
+        for mid in ids:
+            self.forget(mid, reason=f"entity {name} deleted", client=client)
+        with self._tx():
+            t = now()
+            self.conn.execute("UPDATE entity SET deleted_at = ? WHERE id = ?", (t, ent["id"]))
+            self.conn.execute(
+                """UPDATE relation SET deleted_at = ?, valid_to = ? WHERE deleted_at IS NULL
+                   AND (from_entity = ? OR to_entity = ?)""", (t, t, ent["id"], ent["id"]))
+        return len(ids)
+
+    # ---------- reads ----------
+
+    def get(self, refs: list[str | int], *, touch: bool = True) -> list[sqlite3.Row]:
+        rows = []
+        for ref in refs:
+            mid = parse_id(ref)
+            rows.append(self._row(mid))
+            if touch:
+                with self._tx():
+                    self.conn.execute(
+                        """UPDATE memory SET access_count = access_count + 1,
+                           last_accessed_at = ? WHERE id = ?""", (now(), mid))
+        return rows
+
+    def history(self, ref: str | int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM memory_history WHERE memory_id = ? ORDER BY id", (parse_id(ref),)
+        ).fetchall()
+
+    def relations(self, entity_id: int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """SELECT r.type, a.name AS from_name, b.name AS to_name FROM relation r
+               JOIN entity a ON a.id = r.from_entity JOIN entity b ON b.id = r.to_entity
+               WHERE r.deleted_at IS NULL AND (r.from_entity = ? OR r.to_entity = ?)""",
+            (entity_id, entity_id),
+        ).fetchall()
+
+    def recall(
+        self,
+        query: str = "",
+        *,
+        scope: str | None = None,
+        type: str | None = None,
+        entity: str | None = None,
+        deep: bool = False,
+        include_old: bool = False,
+        limit: int = 50,
+    ) -> RecallResult:
+        chain = self.scope_chain(scope)
+        where = [f"m.scope_id IN ({','.join('?' * len(chain))})", "m.deleted_at IS NULL"]
+        args: list = list(chain)
+        if not (deep or include_old):
+            t = now()
+            where += [
+                "m.superseded_by IS NULL",
+                "(m.expires_at IS NULL OR m.expires_at > ?)",
+                "(m.valid_to IS NULL OR m.valid_to > ?)",
+            ]
+            args += [t, t]
+        if type:
+            where.append("m.type = ?")
+            args.append(type.lower())
+        if entity:
+            where.append("e.name = ? COLLATE NOCASE")
+            args.append(entity.strip())
+
+        qterms = terms(query)
+        base = """SELECT m.*, e.name AS entity_name, s.key AS scope_key {rank} FROM {src}
+                  LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id"""
+        if qterms:
+            fts_terms = [stem(t) if deep else t for t in qterms]
+            match = " OR ".join(f'"{t}"*' for t in dict.fromkeys(fts_terms))
+            sql = base.format(
+                rank=", bm25(memory_fts, 1.0, 0.5, 2.0) AS rank",
+                src="memory_fts JOIN memory m ON m.id = memory_fts.rowid",
+            )
+            sql += " WHERE memory_fts MATCH ? AND " + " AND ".join(where)
+            sql += f" ORDER BY rank LIMIT {int(limit) * (3 if deep else 2)}"
+            rows = self.conn.execute(sql, (match, *args)).fetchall()
+        else:
+            sql = base.format(rank=", 0 AS rank", src="memory m")
+            sql += " WHERE " + " AND ".join(where)
+            sql += f" ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT {int(limit)}"
+            rows = self.conn.execute(sql, args).fetchall()
+
+        hits = [self._score(r, qterms) for r in rows]
+        if qterms and hits:
+            worst = max(-h.memory["rank"] for h in hits) or 1.0
+            for h in hits:
+                bm = -h.memory["rank"] / worst if worst > 0 else 0.0
+                h.parts["bm25"] = round(bm, 2)
+                h.score = round(
+                    (0.6 * h.parts["coverage"] + 0.4 * bm) * 0.75
+                    + 0.15 * h.parts["importance"] + 0.1 * h.parts["recency"]
+                    + (0.1 if h.memory["pinned"] else 0.0)
+                    - (0.2 if h.status else 0.0), 3)
+        hits.sort(key=lambda h: h.score, reverse=True)
+        coverage = max((h.parts.get("coverage", 0.0) for h in hits), default=0.0)
+        return RecallResult(hits=hits[:limit], coverage=coverage if qterms else 1.0)
+
+    def _score(self, row: sqlite3.Row, qterms: list[str]) -> Hit:
+        text_terms = set(terms(
+            f"{row['content']} {row['entity_name'] or ''} {' '.join(json.loads(row['tags']))}",
+            limit=10_000))
+        stems = {stem(t) for t in text_terms}
+        if qterms:
+            matched = sum(
+                1 for q in qterms
+                if any(t.startswith(q) for t in text_terms) or stem(q) in stems
+                or any(t.startswith(stem(q)) for t in text_terms)
+            )
+            coverage = matched / len(qterms)
+        else:
+            coverage = 0.0
+        ts = row["updated_at"] or row["recorded_at"]
+        age_days = (datetime.now(UTC) - datetime.fromisoformat(ts)).total_seconds() / 86400
+        recency = math.exp(-max(age_days, 0) / 180)
+        parts = {"coverage": round(coverage, 2), "importance": row["importance"],
+                 "recency": round(recency, 2)}
+        score = 0.75 * row["importance"] + 0.25 * recency + (0.5 if row["pinned"] else 0)
+        return Hit(memory=row, entity=row["entity_name"], score=round(score, 3), parts=parts)
+
+    def context(self, scope: str | None = None, limit: int = 40) -> list[Hit]:
+        chain = self.scope_chain(scope)
+        t = now()
+        rows = self.conn.execute(
+            f"""SELECT m.*, e.name AS entity_name, s.key AS scope_key FROM memory m
+                LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id
+                WHERE m.scope_id IN ({','.join('?' * len(chain))}) AND m.deleted_at IS NULL
+                AND m.superseded_by IS NULL AND (m.expires_at IS NULL OR m.expires_at > ?)
+                ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT ?""",
+            (*chain, t, limit),
+        ).fetchall()
+        hits = [self._score(r, []) for r in rows]
+        hits.sort(key=lambda h: h.score, reverse=True)
+        return hits
+
+    def entities(self, scope: str | None = None) -> list[sqlite3.Row]:
+        chain = self.scope_chain(scope)
+        return self.conn.execute(
+            f"""SELECT e.*, (SELECT count(*) FROM memory m WHERE m.entity_id = e.id
+                AND m.deleted_at IS NULL AND m.superseded_by IS NULL) AS facts
+                FROM entity e WHERE e.deleted_at IS NULL
+                AND e.scope_id IN ({','.join('?' * len(chain))}) ORDER BY e.name""",
+            chain,
+        ).fetchall()
+
+    def entity_memories(self, entity_id: int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """SELECT m.*, e.name AS entity_name, s.key AS scope_key FROM memory m
+               LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id
+               WHERE m.entity_id = ? AND m.deleted_at IS NULL AND m.superseded_by IS NULL
+               ORDER BY m.pinned DESC, m.importance DESC, m.id""",
+            (entity_id,),
+        ).fetchall()
+
+    def stats(self) -> dict[str, int]:
+        q = lambda sql: self.conn.execute(sql).fetchone()[0]
+        return {
+            "memories": q("SELECT count(*) FROM memory WHERE deleted_at IS NULL "
+                          "AND superseded_by IS NULL"),
+            "superseded": q("SELECT count(*) FROM memory WHERE superseded_by IS NOT NULL"),
+            "forgotten": q("SELECT count(*) FROM memory WHERE deleted_at IS NOT NULL"),
+            "entities": q("SELECT count(*) FROM entity WHERE deleted_at IS NULL"),
+            "relations": q("SELECT count(*) FROM relation WHERE deleted_at IS NULL"),
+            "scopes": q("SELECT count(*) FROM scope"),
+            "clients": q("SELECT count(*) FROM client WHERE revoked_at IS NULL"),
+        }
