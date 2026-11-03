@@ -54,6 +54,75 @@ Non-goals (for now): multi-tenant SaaS, distributed storage, LLM-mandatory pipel
   scanner rejects API keys/passwords on write.
 - **Transparency** — scores, provenance, history and undo for every memory.
 
+## Survey: "engram" projects (2026-11)
+
+Four projects were reviewed. Two are not memory servers at all and offer nothing to take:
+`QingGo/EngramDB` (disk storage for DeepSeek Engram / Qwen PLE n-gram embedding tables
+used during model inference) and `cortexapps/engrams` (self-hosted agent sandboxes in
+Firecracker VMs, the name only). The other two are relevant:
+
+- **`edg-l/engram-mcp`** (Rust, Apache-2.0): local MCP server for coding agents. SQLite +
+  FTS5 + small ONNX embedder, git-branch-aware handoffs, todos, ADRs, decay, sync over ssh.
+  Closest to Memcairn in architecture. 29 tools, with `full/core/minimal` profiles.
+- **`tinqiao-oss/engramory`** (MIT, ~200★): no server, just a curated markdown store
+  (`MEMORY.md` index + one file per fact), the same model as Claude Code auto-memory, plus
+  strict writing rules, a pre-write hook that caps index size, and a `doctor` script.
+  Deliberately not MCP: "a tool the model must remember to call" is weaker than an
+  index the host injects every session.
+
+Their benchmark agrees with ours: on LongMemEval, BM25 alone beat hybrid BM25+vector
+(full-R@5 73 % vs 70 %, MRR 0.88 vs 0.83; vector alone 23 %). This supports keeping semantics in `mode="deep"` only.
+
+### Proposals (ordered by value/cost, mapped to open tasks)
+
+1. **Session-start injection instead of relying on the model** (engramory's critique, and
+   engram-mcp's `SessionStart` script). Add `memcairn hook session-start`, which prints
+   `get_context` for the current project as markdown for a Claude Code `SessionStart` hook.
+   Context then arrives without a tool call or a CLAUDE.md instruction. It must fail
+   silently and fast (timeout ≤ 3 s, no output on error). *Phase 3, small.*
+2. **Importance from signals, decay by activity rather than calendar** (task 3). engram-mcp:
+   `relevance = exp(-0.01 × elapsed) × (0.5 + 0.5 × importance) + usage_boost`, where
+   `elapsed` counts *store-days*: days on which the same scope/entity received a new write.
+   A project left alone for a year does not fade; an active one ages at its own pace.
+   Pinned memories are exempt. For `get_context`, combine this with a type prior
+   (feedback/user > project/decision > fact/reference) and diversify the picks (see 3).
+3. **Diversity in `get_context`** (task 3). engram-mcp clusters and draws from the best
+   clusters so five results are not near-copies. A cheaper equivalent for us: MMR over the
+   existing embeddings, or at most N facts per entity.
+4. **Near-duplicates on write: candidates only, never auto-merge** (task 4). Same type,
+   cosine ≥ 0.88 as the starting threshold, calibrated on the private benchmark. Their
+   measurement: two different claims about one subject score 0.90–0.91, as high as a
+   paraphrase, so similarity cannot decide. Show the candidate and let the agent choose
+   `update`/`supersede`. This confirms the existing design.
+5. **Superseded hit → return its successor** in place of it, marked `(replaces mX)`, when
+   the old version matched the query better than the new one. Stops the agent from
+   re-deriving a stale answer. Cheap in `store.recall`.
+6. **Todos with an explicit closed state** (engram-mcp): an open todo stays visible until it
+   is closed as `done`, or as `dropped` with a reason. Without this, "finished" and
+   "forgotten" look the same. For us: `update(id, status=done|dropped)` or `forget` with a
+   reason on type `todo`, plus `get_context` listing open todos for the scope. Optionally
+   flag todos untouched for 30 active days as stale. No new tool.
+7. **Write discipline in tool descriptions and docs** (engramory, behavioural rules): do not
+   store what the repo/CLAUDE.md already holds; record *settled facts*, never *current
+   state* (versions, tip commit, test counts go stale, so store where to read them);
+   feedback/project should say *why* and *how to apply*. Server side, at most one hint
+   line on `remember` (e.g. long content → suggest a split), so the fixed token cost
+   stays the same. A copyable CLAUDE.md snippet goes in `docs/setup.md`.
+8. **`memcairn doctor` store checks** (engramory's `doctor`; task 2 covers the client and
+   server side): overlong memories (a "timeline" stacked into one fact → split into a
+   conclusion plus history), entities with too many facts, todos open for a long time,
+   memories that read like instructions ("ignore previous…": stored prompt injection).
+   Report only, no changes.
+9. **Normalized git remote as the project key** (engram-mcp): `git@github.com:a/b.git` and
+   `https://github.com/a/b` are the same id; worktrees map to the main checkout; a repo
+   without a remote uses a home-relative path. This is the exact rule for our project scope.
+10. *Later / maybe:* `external_artifacts` (files/URLs a memory refers to, flagged `[missing]`
+    when gone); a structured handoff (summary / decisions / blockers / tried / next) as
+    `save-session` prompt; tool profiles if the tool list ever grows past ~1 000 tokens.
+
+Not adopted: passive capture of every tool call/turn (engram-mcp itself rejects it as noise);
+pairwise ssh sync (we are a central server); a 29-tool surface; plain files with no search.
+
 ## Token economy
 
 Memory must help without eating the context window. Every token the server puts into
