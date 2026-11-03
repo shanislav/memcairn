@@ -31,6 +31,9 @@ On 998 real facts with 50 queries, compared with the official `server-memory`
 
 ## Quick start
 
+The full guide covers server deployment, connecting machines, multiple instances, scopes,
+agent instructions, migration and troubleshooting: **[docs/setup.md](docs/setup.md)**.
+
 ```bash
 uv tool install git+https://github.com/shanislav/engrammar
 engrammar import server-memory ~/.claude/memory.json   # optional: migrate old memory
