@@ -1,0 +1,13 @@
+# Example deployment. Put TLS in front (nginx/caddy) and keep it on a private network.
+#   docker compose up -d
+#   docker compose exec engrammar engrammar token add my-laptop
+services:
+  engrammar:
+    build: .
+    restart: unless-stopped
+    environment:
+      ENGRAMMAR_PUBLIC_URL: ${ENGRAMMAR_PUBLIC_URL:-http://localhost:8765}
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8765:8765"
