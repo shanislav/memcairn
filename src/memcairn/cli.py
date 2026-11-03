@@ -44,6 +44,16 @@ def serve(
 ):
     """Run the MCP server."""
     store = open_store(db)
+    try:
+        _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client)
+    finally:
+        # Fold the WAL back into the main file so the .db alone is a complete copy.
+        with store.lock:
+            store.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            store.conn.close()
+
+
+def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client):
     if transport == "stdio":
         build(store, compat=compat, stdio_client=client).run("stdio")
         return
