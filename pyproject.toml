@@ -1,0 +1,27 @@
+[project]
+name = "engrammar"
+version = "0.0.1"
+description = "Self-hosted long-term memory for AI agents over MCP"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Roman Sedivy" }]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.20",
+    "typer>=0.12",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+vector = ["sqlite-vec>=0.1.6", "fastembed>=0.4"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+engrammar = "engrammar.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
