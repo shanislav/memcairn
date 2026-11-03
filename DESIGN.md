@@ -9,7 +9,7 @@ Single SQLite file, no external services required.
 1. **Cheap, instant writes.** Storing a memory never needs an LLM call. Enrichment and
    consolidation are optional background jobs.
 2. **Good recall with small context cost.** Hybrid ranked retrieval with a token budget,
-   never "dump the whole graph".
+   never "dump the whole graph". Token economy is a first-class requirement, see below.
 3. **Safe concurrency.** Many clients write at once; nothing is silently lost.
 4. **Nothing is destroyed silently.** Facts are superseded or invalidated, every change is
    versioned, everything can be undone.
@@ -53,6 +53,45 @@ Non-goals (for now): multi-tenant SaaS, distributed storage, LLM-mandatory pipel
 - **Prompt-injection hygiene** — recalled text is wrapped and marked as data; secret
   scanner rejects API keys/passwords on write.
 - **Transparency** — scores, provenance, history and undo for every memory.
+
+## Token economy
+
+Memory must help without eating the context window. Every token the server puts into
+context has to earn its place. Rules:
+
+**Fixed cost (paid every turn)**
+- Few tools: 6–7 core tools with one-line descriptions. Target < 1 000 tokens for the
+  whole tool list. Compatibility tools are off by default (they would roughly double it).
+- Stable, deterministic tool list and descriptions, so prompt caching keeps working.
+- Usage guidance lives in tool descriptions, not in long CLAUDE.md instructions.
+
+**Session start**
+- `get_context` returns only pinned + highest-value facts for the current scope,
+  hard cap ~500 tokens (configurable). No automatic dump of anything else.
+
+**Recall — progressive disclosure**
+- `recall` returns compact hits by default: one line per hit
+  (`id · type · entity · ~120-char snippet`), top 5, default budget ~600 tokens.
+- Full text only on demand: `get(ids)` for the few hits the agent actually needs.
+- Score breakdown and provenance only with `explain=true`.
+- Plain-text output, not verbose JSON (keys and quotes cost tokens).
+- The server does the ranking/filtering/dedup of results, so the model reads 5 good
+  lines instead of 50 mediocre ones.
+- Superseded / expired facts are excluded unless explicitly requested.
+
+**Writes**
+- Response is one line: `ok <id>` (+ at most 3 duplicate-candidate snippets).
+- Facts are short and atomic; content over ~500 chars gets a warning suggesting a split.
+
+**Keeping the store lean**
+- Consolidation merges duplicates and summarizes overgrown entities, so recall hits
+  fewer, better facts over time.
+- No `read_graph`-style dump; the compat `read_graph` is capped and paginated.
+
+**Measured, not assumed**
+- Every response size is logged; `engrammar stats` shows tokens per call type.
+- The eval suite tracks recall quality *and* tokens returned per query; a change that
+  improves quality but blows the budget fails the check.
 
 ## Data model (SQLite)
 
@@ -122,7 +161,8 @@ Tools (deterministic order, annotated):
 
 | Tool | Annotation |
 |---|---|
-| `recall` (query, filters, max_tokens) | readOnly |
+| `recall` (query, filters, max_tokens, explain) — compact hits | readOnly |
+| `get` (ids) — full text of selected hits | readOnly |
 | `get_context` (scope) — pinned + top facts within budget | readOnly |
 | `remember` | idempotent with key |
 | `update`, `supersede`, `link` (relation), `feedback` (useful/wrong) | — |
