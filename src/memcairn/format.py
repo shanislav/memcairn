@@ -58,12 +58,13 @@ def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
            deep: bool) -> str:
     if not result.hits:
         return "no memories found" + ("" if deep else " — try mode=deep or other words")
-    hits = result.hits
     weak = result.coverage < 0.5
+    # Only show hits that are reasonably close to the best one; semantic search always
+    # finds *something*, and padding the list to `limit` costs tokens for nothing.
+    floor = result.coverage * (0.75 if weak else 0.6)
+    hits = [h for h in result.hits if h.parts.get("rel", 1.0) >= floor]
     if weak:
-        # Don't spend tokens on a page of weak matches: show a few, say so.
-        floor = result.coverage * 0.75
-        hits = [h for h in hits if h.parts.get("coverage", 1.0) >= floor][:3]
+        hits = hits[:3]  # a few weak matches, clearly labelled
     lines = [hit_line(h, explain=explain) for h in hits[:limit]]
     text = budgeted(lines, max_tokens, "(narrow the query or raise max_tokens)")
     if weak:

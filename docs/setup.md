@@ -7,6 +7,7 @@ How to run Memcairn as one central memory and connect agents to it.
 - [3. Tell the agent how to use it](#3-tell-the-agent-how-to-use-it)
 - [4. Scopes: shared vs separate memory](#4-scopes-shared-vs-separate-memory)
 - [5. Managing clients](#5-managing-clients)
+- [5a. Semantic search](#5a-semantic-search)
 - [6. Network and security](#6-network-and-security)
 - [7. Migrating from the official memory server](#7-migrating-from-the-official-memory-server)
 - [8. Troubleshooting](#8-troubleshooting)
@@ -177,6 +178,28 @@ docker compose exec memcairn memcairn token revoke <name> # disconnect a machine
 docker compose exec memcairn memcairn stats               # counts
 docker compose exec memcairn memcairn export /data/export.json
 ```
+
+## 5a. Semantic search
+
+With the `vector` extra installed (the Docker image includes it), `recall(mode="deep")`
+adds semantic similarity from a local embedding model to full-text search. It then finds
+facts that share no words with the query, including facts in another language. Normal
+recall stays full-text only, which is cheaper and more precise when words do match, and
+it says `low confidence — try mode=deep` when they don't.
+
+- The model runs on the CPU. Nothing is sent to an external API.
+- It is downloaded on first start into `MEMCAIRN_MODEL_DIR` (`/data/models` in Docker,
+  `~/.memcairn/models` otherwise).
+- Existing memories are embedded in the background after start. New ones are embedded
+  as they are written.
+
+| Variable | Default | |
+|---|---|---|
+| `MEMCAIRN_EMBED_MODEL` | `minishlab/potion-multilingual-128M` (static model: ~0.5 GB, embeds 1,000 facts in under a second) | any [fastembed](https://github.com/qdrant/fastembed) text model; `none` disables semantic search |
+| `MEMCAIRN_MODEL_DIR` | see above | model cache |
+
+When you change the model, everything is re-embedded on the next start. Vectors from the
+old model are ignored.
 
 ## 6. Network and security
 

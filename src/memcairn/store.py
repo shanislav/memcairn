@@ -66,7 +66,13 @@ class Hit:
 @dataclass
 class RecallResult:
     hits: list[Hit]
-    coverage: float  # best fraction of query terms matched by a single hit
+    coverage: float  # confidence: best relevance (0-1) of any single hit
+
+
+# Cosine similarity mapped to 0..1 relevance; calibrated on the benchmark for the
+# default multilingual model (unrelated text scores around the floor).
+SIM_FLOOR = 0.40
+SIM_CEIL = 0.75
 
 
 def fold(text: str) -> str:
@@ -118,9 +124,21 @@ def parse_id(ref: str | int) -> int:
 
 
 class Store:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, embedder=None):
         self.conn = conn
         self.lock = threading.RLock()
+        self.embedder = embedder
+        self.defer_vectors = False
+        self.vindex = None
+        self._dirty: set[int] = set()
+        if embedder is not None:
+            from .vectors import VectorIndex
+
+            self.vindex = VectorIndex()
+            self.vindex.load(self.conn.execute(
+                """SELECT v.memory_id, v.vec FROM memory_vec v JOIN memory m
+                   ON m.id = v.memory_id WHERE v.model = ? AND m.deleted_at IS NULL""",
+                (embedder.model,)).fetchall())
 
     # ---------- helpers ----------
 
@@ -135,10 +153,66 @@ class Store:
             def __exit__(self, exc_type, *_):
                 try:
                     store.conn.execute("ROLLBACK" if exc_type else "COMMIT")
+                    if exc_type:
+                        store._dirty.clear()
+                    elif store._dirty:
+                        store._flush_vectors()
                 finally:
                     store.lock.release()
 
         return _Tx()
+
+    # ---------- embeddings ----------
+
+    @staticmethod
+    def _embed_text(row: sqlite3.Row) -> str:
+        tags = " ".join(json.loads(row["tags"]))
+        head = f"{row['entity_name']}: " if row["entity_name"] else ""
+        return f"{head}{row['content']} {tags}".strip()
+
+    def _flush_vectors(self) -> None:
+        """Embed memories changed by the last transaction (called after COMMIT, under lock)."""
+        ids, self._dirty = sorted(self._dirty), set()
+        if self.embedder is None or self.defer_vectors:
+            return  # bulk imports call backfill_vectors() once at the end instead
+        rows = [self._row(mid) for mid in ids]
+        live = [r for r in rows if not r["deleted_at"]]
+        for r in rows:
+            if r["deleted_at"]:
+                self.vindex.remove(r["id"])
+        if live:
+            self._store_vectors(live)
+
+    def _store_vectors(self, rows: list[sqlite3.Row]) -> None:
+        vecs = self.embedder.docs([self._embed_text(r) for r in rows])
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO memory_vec (memory_id, model, vec) VALUES (?,?,?)",
+                [(r["id"], self.embedder.model, v.tobytes()) for r, v in zip(rows, vecs)])
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        for r, v in zip(rows, vecs):
+            self.vindex.upsert(r["id"], v)
+
+    def backfill_vectors(self, batch: int = 64) -> int:
+        """Embed memories that have no vector for the current model. Returns how many."""
+        if self.embedder is None:
+            return 0
+        done = 0
+        while True:
+            with self.lock:
+                ids = [r[0] for r in self.conn.execute(
+                    """SELECT m.id FROM memory m LEFT JOIN memory_vec v
+                       ON v.memory_id = m.id AND v.model = ?
+                       WHERE m.deleted_at IS NULL AND v.memory_id IS NULL LIMIT ?""",
+                    (self.embedder.model, batch))]
+                if not ids:
+                    return done
+                self._store_vectors([self._row(mid) for mid in ids])
+            done += len(ids)
 
     def scope_id(self, key: str | None, create: bool = True) -> int:
         key = (key or "global").strip()
@@ -214,6 +288,7 @@ class Store:
 
     def _index(self, mid: int) -> None:
         row = self._row(mid)
+        self._dirty.add(mid)
         self.conn.execute("DELETE FROM memory_fts WHERE rowid = ?", (mid,))
         if row["deleted_at"]:
             return
@@ -509,36 +584,65 @@ class Store:
         qterms = query_terms(query)
         base = """SELECT m.*, e.name AS entity_name, s.key AS scope_key {rank} FROM {src}
                   LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id"""
-        if qterms:
-            fts_terms = [stem(t) if deep else t for t in qterms]
-            match = " OR ".join(f'"{t}"*' for t in dict.fromkeys(fts_terms))
-            sql = base.format(
-                rank=", bm25(memory_fts, 1.0, 0.5, 2.0) AS rank",
-                src="memory_fts JOIN memory m ON m.id = memory_fts.rowid",
-            )
-            sql += " WHERE memory_fts MATCH ? AND " + " AND ".join(where)
-            sql += f" ORDER BY rank LIMIT {int(limit) * (3 if deep else 2)}"
-            rows = self.conn.execute(sql, (match, *args)).fetchall()
-        else:
+        if not qterms:
             sql = base.format(rank=", 0 AS rank", src="memory m")
             sql += " WHERE " + " AND ".join(where)
             sql += f" ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT {int(limit)}"
-            rows = self.conn.execute(sql, args).fetchall()
+            hits = [self._score(r, qterms) for r in self.conn.execute(sql, args).fetchall()]
+            hits.sort(key=lambda h: h.score, reverse=True)
+            return RecallResult(hits=hits, coverage=1.0)
 
-        hits = [self._score(r, qterms) for r in rows]
-        if qterms and hits:
-            worst = max(-h.memory["rank"] for h in hits) or 1.0
-            for h in hits:
-                bm = -h.memory["rank"] / worst if worst > 0 else 0.0
-                h.parts["bm25"] = round(bm, 2)
-                h.score = round(
-                    (0.6 * h.parts["coverage"] + 0.4 * bm) * 0.75
-                    + 0.15 * h.parts["importance"] + 0.1 * h.parts["recency"]
-                    + (0.1 if h.memory["pinned"] else 0.0)
-                    - (0.2 if h.status else 0.0), 3)
+        # Lexical candidates (FTS5 BM25).
+        fts_terms = [stem(t) if deep else t for t in qterms]
+        match = " OR ".join(f'"{t}"*' for t in dict.fromkeys(fts_terms))
+        sql = base.format(rank=", bm25(memory_fts, 1.0, 0.5, 2.0) AS rank",
+                          src="memory_fts JOIN memory m ON m.id = memory_fts.rowid")
+        sql += " WHERE memory_fts MATCH ? AND " + " AND ".join(where)
+        sql += f" ORDER BY rank LIMIT {int(limit) * (3 if deep else 2)}"
+        rows = {r["id"]: r for r in self.conn.execute(sql, (match, *args)).fetchall()}
+
+        # Semantic candidates, deep mode only: on the benchmark, full text alone already
+        # finds almost everything that shares words with the query, and mixing vectors in
+        # there added noise. Vectors earn their keep where words don't match at all.
+        sims: dict[int, float] = {}
+        if deep and self.vindex is not None and len(self.vindex):
+            qvec = self.embedder.query(query)
+            sims = self.vindex.similarities(qvec)
+            nearest = [mid for mid, _ in self.vindex.search(qvec, 40)
+                       if mid not in rows]
+            if nearest:
+                sql = base.format(rank=", 0 AS rank", src="memory m")
+                sql += (" WHERE " + " AND ".join(where)
+                        + f" AND m.id IN ({','.join('?' * len(nearest))})")
+                for r in self.conn.execute(sql, (*args, *nearest)).fetchall():
+                    rows[r["id"]] = r
+
+        hits = [self._score(r, qterms) for r in rows.values()]
+        worst = max((-h.memory["rank"] for h in hits), default=0.0)
+        def combine(lexical: float, semantic: float | None) -> float:
+            if semantic is None:
+                return lexical
+            # Agreement of both signals is rewarded; either one alone still counts.
+            return 0.7 * max(lexical, semantic) + 0.3 * min(lexical, semantic)
+
+        for h in hits:
+            # bm25 is normalized within this result set, so it orders hits but says nothing
+            # absolute; confidence ("rel") therefore uses term coverage, not bm25.
+            bm = -h.memory["rank"] / worst if worst > 0 else 0.0
+            h.parts["bm25"] = round(bm, 2)
+            semantic = None
+            if sims:
+                sim = sims.get(h.memory["id"], 0.0)
+                semantic = min(1.0, max(0.0, (sim - SIM_FLOOR) / (SIM_CEIL - SIM_FLOOR)))
+                h.parts["sim"] = round(sim, 2)
+            h.parts["rel"] = round(combine(h.parts["coverage"], semantic), 2)
+            ranking = combine(0.6 * h.parts["coverage"] + 0.4 * bm, semantic)
+            h.score = round(
+                ranking * 0.75 + 0.15 * h.parts["importance"] + 0.1 * h.parts["recency"]
+                + (0.1 if h.memory["pinned"] else 0.0) - (0.2 if h.status else 0.0), 3)
         hits.sort(key=lambda h: h.score, reverse=True)
-        coverage = max((h.parts.get("coverage", 0.0) for h in hits), default=0.0)
-        return RecallResult(hits=hits[:limit], coverage=coverage if qterms else 1.0)
+        confidence = max((h.parts["rel"] for h in hits), default=0.0)
+        return RecallResult(hits=hits[:limit], coverage=confidence)
 
     def _score(self, row: sqlite3.Row, qterms: list[str]) -> Hit:
         text_terms = set(terms(

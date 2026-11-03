@@ -137,5 +137,6 @@ def test_import_server_memory(store, tmp_path):
     p = tmp_path / "memory.json"
     p.write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
     stats = import_server_memory(store, p)
-    assert stats == {"entities": 2, "facts": 2, "relations": 1, "skipped_secrets": 0}
+    assert stats == {"entities": 2, "facts": 2, "relations": 1, "skipped_secrets": 0,
+                     "embedded": 0}
     assert store.find_entity("obed")["type"] == "project"

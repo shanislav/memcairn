@@ -3,11 +3,13 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir . && useradd --system --uid 10001 memcairn \
+RUN pip install --no-cache-dir ".[vector]" && useradd --system --uid 10001 memcairn \
     && mkdir /data && chown memcairn /data
 
 USER memcairn
-ENV MEMCAIRN_DB=/data/memcairn.db
+# The embedding model is downloaded on first start into the data volume.
+ENV MEMCAIRN_DB=/data/memcairn.db \
+    MEMCAIRN_MODEL_DIR=/data/models
 VOLUME /data
 EXPOSE 8765
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import threading
 from pathlib import Path
 
 import typer
@@ -13,6 +14,7 @@ from . import importers
 from .db import connect, now
 from .server import build, hash_token
 from .store import Store
+from .vectors import from_env
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 token_app = typer.Typer(no_args_is_help=True, help="Manage client tokens.")
@@ -24,8 +26,8 @@ DEFAULT_DB = Path(os.environ.get("MEMCAIRN_DB", Path.home() / ".memcairn" / "mem
 DbOpt = typer.Option(DEFAULT_DB, "--db", envvar="MEMCAIRN_DB", help="SQLite database path.")
 
 
-def open_store(db: Path) -> Store:
-    return Store(connect(db))
+def open_store(db: Path, *, vectors: bool = True) -> Store:
+    return Store(connect(db), embedder=from_env() if vectors else None)
 
 
 @app.command()
@@ -44,6 +46,8 @@ def serve(
 ):
     """Run the MCP server."""
     store = open_store(db)
+    if store.embedder is not None:
+        threading.Thread(target=store.backfill_vectors, name="backfill", daemon=True).start()
     try:
         _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client)
     finally:
@@ -76,7 +80,7 @@ def _serve(store, transport, host, port, public_url, allowed_host, no_auth, comp
 def token_add(name: str, scope: str = typer.Option("global", help="Default scope."),
               db: Path = DbOpt):
     """Create a client and print its token (shown once)."""
-    store = open_store(db)
+    store = open_store(db, vectors=False)
     token = "mcn_" + secrets.token_urlsafe(32)
     with store._tx():
         store.scope_id(scope)
@@ -91,7 +95,7 @@ def token_add(name: str, scope: str = typer.Option("global", help="Default scope
 @token_app.command("list")
 def token_list(db: Path = DbOpt):
     """List clients."""
-    for r in open_store(db).conn.execute("SELECT * FROM client ORDER BY name"):
+    for r in open_store(db, vectors=False).conn.execute("SELECT * FROM client ORDER BY name"):
         state = "revoked" if r["revoked_at"] else "active"
         typer.echo(f"{r['name']:<24} {state:<8} scope={r['default_scope']} "
                    f"last_seen={r['last_seen_at'] or '-'}")
@@ -100,7 +104,7 @@ def token_list(db: Path = DbOpt):
 @token_app.command("revoke")
 def token_revoke(name: str, db: Path = DbOpt):
     """Revoke a client's token."""
-    store = open_store(db)
+    store = open_store(db, vectors=False)
     with store._tx():
         n = store.conn.execute("UPDATE client SET revoked_at = ? WHERE name = ?",
                                (now(), name)).rowcount
@@ -125,7 +129,7 @@ def export(path: Path, db: Path = DbOpt):
 @app.command()
 def stats(db: Path = DbOpt):
     """Counts of memories, entities, relations."""
-    for k, v in open_store(db).stats().items():
+    for k, v in open_store(db, vectors=False).stats().items():
         typer.echo(f"{k:<12} {v}")
 
 

@@ -8,8 +8,9 @@ stone; the next one finds the way.*
 One server, many clients: several Claude Code instances, server-side agents and
 claude.ai can share the same memory without overwriting each other.
 
-> Status: pre-alpha, phase 1 of the [roadmap](DESIGN.md#roadmap) (core store, full-text
-> recall, HTTP with tokens, import from the official memory server).
+> Status: pre-alpha, phase 2 of the [roadmap](DESIGN.md#roadmap): core store, full-text
+> recall, local semantic search in deep mode, HTTP with tokens, import from the official
+> memory server.
 
 ## Why
 
@@ -29,7 +30,7 @@ On 998 real facts with 50 queries, compared with the official `server-memory`
 | | official | Memcairn |
 |---|---|---|
 | hit@5 | 24% | **98%** |
-| tokens per query (mean / max) | 2,055 / 35,765 | **221 / 449** |
+| tokens per query (mean / max) | 2,055 / 35,765 | **198 / 449** |
 | tool list (every turn) | 1,247 | **919** |
 
 ## Quick start

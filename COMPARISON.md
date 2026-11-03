@@ -14,7 +14,7 @@ come from the [roadmap](DESIGN.md#roadmap).
 | License | MIT | MIT | Apache-2.0 | Apache-2.0 | AGPL-3.0 | Apache-2.0 | MIT | Apache-2.0 |
 | Storage | SQLite file | JSONL file | Postgres + vector DB | Neo4j / FalkorDB | Markdown + SQLite | SQLite-vec / Cloudflare | Postgres + pgvector | Postgres / git files |
 | LLM needed on write | **no** | no | yes | yes | no | no (optional) | yes | yes (agent) |
-| Retrieval | FTS (BM25) + coverage + importance + recency; hybrid vector *(planned)* | substring, unranked | vector + BM25 + entity | BM25 + vector + graph + rerank | FTS + vector | vector + BM25 | 4-way hybrid + rerank | agent search |
+| Retrieval | FTS (BM25) + coverage + importance + recency; + local embeddings in deep mode | substring, unranked | vector + BM25 + entity | BM25 + vector + graph + rerank | FTS + vector | vector + BM25 | 4-way hybrid + rerank | agent search |
 | Token budget on results | **yes** | no (dumps full entities) | top-k | top-k | top-k | top-k | yes | – |
 | Concurrent writers | single writer, versions, conflict report | file lock | DB | DB | file sync | WAL | DB | DB |
 | History / undo | **every version** | no | no | invalidated edges | git | partial | no | git |
@@ -34,9 +34,10 @@ instant. Recall must not eat the context window. Nothing should ever be lost sil
 
 ## What it isn't (yet)
 
-- **Semantic recall.** Without the planned vector index, a query with no words in common
-  with the stored text ("deploy" vs a fact that says "rollout") can miss. Mem0, Hindsight
-  and Graphiti handle this today.
+- **Strong semantic recall.** The default embedding model is small (a static model that
+  runs fast on a CPU) and misses some synonyms, e.g. Slovak *nasadiť* vs *deploy*. Larger
+  models can be configured. Mem0, Hindsight and Graphiti lean much harder on embeddings and
+  LLMs.
 - **Automatic knowledge extraction.** Memcairn stores what the agent decides to store.
   Systems that run an LLM on every message (Mem0, Graphiti, supermemory) extract facts on
   their own, at the cost of LLM calls, latency and occasional hallucinated facts.

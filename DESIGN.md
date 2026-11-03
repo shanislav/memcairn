@@ -219,8 +219,8 @@ Packaging: PyPI (`uvx memcairn`), Docker image.
 | Phase | Content |
 |---|---|
 | 0 | Repo skeleton, schema + migrations, CI, tests |
-| 1 | Core store, FTS recall, remember/update/supersede/forget/history, stdio + HTTP with bearer tokens, import `memory.json`, compatibility tools → deploy for own use |
-| 2 | Embeddings + hybrid RRF retrieval, near-duplicate detection, scopes with inheritance, temporal queries, deep search mode |
+| 1 ✅ | Core store, FTS recall, remember/update/supersede/forget/history, stdio + HTTP with bearer tokens, import `memory.json`, compatibility tools → deploy for own use |
+| 2 (partly ✅) | Done: local embeddings (fastembed, brute-force cosine), hybrid scoring in deep mode, relative cutoff of weak hits. Open: vector-based near-duplicates, temporal queries ("last week", `as_of`) |
 | 3 | Markdown mirror + Claude Code memory-dir sync |
 | 4 | Consolidation jobs + review queue, optional LLM backend |
 | 5 | Web dashboard, OAuth for claude.ai connectors |

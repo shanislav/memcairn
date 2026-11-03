@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from memcairn.db import connect  # noqa: E402
 from memcairn.importers import import_server_memory  # noqa: E402
 from memcairn.store import Store  # noqa: E402
+from memcairn.vectors import from_env  # noqa: E402
 
 HIT = re.compile(r"^m\d+ · ")
 OFFICIAL_PKG = "@modelcontextprotocol/server-memory@2025.9.25"
@@ -201,7 +202,7 @@ def main() -> None:
         shutil.copyfile(a.memory_json, copy)  # never touch the original
         db = tmp / "memcairn.db"
         conn = connect(db)
-        data = import_server_memory(Store(conn), copy)
+        data = import_server_memory(Store(conn, embedder=from_env()), copy)  # vectors too
         conn.close()
         official = anyio.run(run_official, copy, queries)
         engr = anyio.run(run_memcairn, db, queries)

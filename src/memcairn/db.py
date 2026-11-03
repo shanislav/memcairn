@@ -112,6 +112,14 @@ MIGRATIONS: list[str] = [
         content, tags, entity, tokenize = '{FTS_TOKENIZER}'
     );
     """,
+    # 2 — embeddings for semantic search (float32 blobs, one model at a time)
+    """
+    CREATE TABLE memory_vec (
+        memory_id INTEGER PRIMARY KEY REFERENCES memory(id),
+        model     TEXT NOT NULL,
+        vec       BLOB NOT NULL
+    );
+    """,
 ]
 
 

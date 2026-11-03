@@ -32,6 +32,7 @@ def import_server_memory(store: Store, path: str | Path, *, scope: str = "global
     entities, relations = read_server_memory(path)
     episode = store.episode(scope, client, raw=f"import from {Path(path).name}")
     stats = {"entities": 0, "facts": 0, "relations": 0, "skipped_secrets": 0}
+    store.defer_vectors = True  # embed everything in batches at the end
     for ent in entities:
         name = ent["name"]
         with store._tx():
@@ -47,6 +48,8 @@ def import_server_memory(store: Store, path: str | Path, *, scope: str = "global
     for rel in relations:
         if store.link(rel["from"], rel["to"], rel["relationType"], scope=scope, client=client):
             stats["relations"] += 1
+    store.defer_vectors = False
+    stats["embedded"] = store.backfill_vectors()
     return stats
 
 

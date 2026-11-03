@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vector = ["sqlite-vec>=0.1.6", "fastembed>=0.4"]
+vector = ["fastembed>=0.4", "numpy>=1.26"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
