@@ -78,7 +78,9 @@ claude mcp add --scope user --transport http memory https://memory.example.com/m
 claude mcp list        # should show: memory: ... ✔ Connected
 ```
 
-Or edit `~/.claude/settings.json` directly:
+Or add it by hand to the top-level `mcpServers` in `~/.claude.json`. That file is where
+Claude Code reads user-scope MCP servers. An `mcpServers` block in
+`~/.claude/settings.json` is **not** read.
 
 ```json
 {
@@ -108,10 +110,19 @@ names become `mcp__memory__recall` and so on, which is what the snippet below as
 > wins over your user-level Engrammar entry. The agent then sees `search_nodes` instead of
 > `recall`. Find leftovers with:
 >
+> The **Claude desktop app** has its own MCP list in `claude_desktop_config.json`. On
+> Windows Store installs that file can live under
+> `%LOCALAPPDATA%\Claude-Data\<package>\` rather than `%APPDATA%\Claude\`. A `memory` entry
+> there is also started for Code sessions in the app. In the app's MCP/connector list it
+> shows up as a "desktop" server.
+>
 > ```bash
 > grep -rl --include=.mcp.json '"memory"' ~ 2>/dev/null
 > claude mcp list      # run inside each project; check what "memory" points to
 > ```
+>
+> Windows, to find every desktop config:
+> `Get-ChildItem $env:LOCALAPPDATA,$env:APPDATA -Filter claude_desktop_config.json -Recurse -ErrorAction SilentlyContinue`
 >
 > If you'd rather not hunt for them, register Engrammar under its own name (`engrammar`)
 > and write `mcp__engrammar__…` in your agent instructions.
