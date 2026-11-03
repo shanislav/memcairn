@@ -5,6 +5,7 @@ services:
   memcairn:
     build: .
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       MEMCAIRN_PUBLIC_URL: ${MEMCAIRN_PUBLIC_URL:-http://localhost:8765}
     volumes:

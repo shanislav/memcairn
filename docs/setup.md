@@ -57,7 +57,10 @@ server {
 ```
 
 To update: `git pull && docker compose build && docker compose up -d`. The database is
-`data/memcairn.db`; back it up like any SQLite file (`sqlite3 data/memcairn.db ".backup x.db"`).
+`data/memcairn.db`. Back it up with
+`docker compose exec memcairn memcairn backup /data/backup-$(date +%F).db`, which is safe
+while the server runs. Don't copy `memcairn.db` on its own: recent writes may still sit
+in `memcairn.db-wal` next to it.
 
 ## 2. Connect a client
 

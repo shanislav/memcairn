@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import sqlite3
@@ -13,6 +14,8 @@ from datetime import UTC, datetime
 
 from . import secretscan
 from .db import now
+
+log = logging.getLogger(__name__)
 
 MEMORY_TYPES = ("user", "feedback", "project", "reference", "fact", "todo", "decision", "howto")
 LONG_CONTENT = 500
@@ -181,7 +184,10 @@ class Store:
             if r["deleted_at"]:
                 self.vindex.remove(r["id"])
         if live:
-            self._store_vectors(live)
+            try:
+                self._store_vectors(live)
+            except Exception:  # the write itself is committed; backfill retries later
+                log.exception("embedding failed; memories stay searchable by full text")
 
     def _store_vectors(self, rows: list[sqlite3.Row]) -> None:
         vecs = self.embedder.docs([self._embed_text(r) for r in rows])
@@ -606,7 +612,14 @@ class Store:
         # there added noise. Vectors earn their keep where words don't match at all.
         sims: dict[int, float] = {}
         if deep and self.vindex is not None and len(self.vindex):
-            qvec = self.embedder.query(query)
+            try:
+                qvec = self.embedder.query(query)
+            except Exception:  # model missing or broken: degrade to full text
+                log.exception("embedding the query failed; using full-text recall only")
+                qvec = None
+        else:
+            qvec = None
+        if qvec is not None:
             sims = self.vindex.similarities(qvec)
             nearest = [mid for mid, _ in self.vindex.search(qvec, 40)
                        if mid not in rows]

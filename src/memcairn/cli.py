@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import threading
+import time
 from pathlib import Path
 
 import typer
@@ -47,7 +49,8 @@ def serve(
     """Run the MCP server."""
     store = open_store(db)
     if store.embedder is not None:
-        threading.Thread(target=store.backfill_vectors, name="backfill", daemon=True).start()
+        threading.Thread(target=_backfill_forever, args=(store,), name="backfill",
+                         daemon=True).start()
     try:
         _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client)
     finally:
@@ -55,6 +58,21 @@ def serve(
         with store.lock:
             store.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             store.conn.close()
+
+
+def _backfill_forever(store: Store, retry_seconds: int = 600) -> None:
+    """Embed missing vectors; if the model can't be loaded (offline, disk), retry later."""
+    while True:
+        try:
+            n = store.backfill_vectors()
+            if n:
+                logging.getLogger("memcairn").info("embedded %d memories", n)
+            return
+        except Exception:
+            logging.getLogger("memcairn").exception(
+                "backfill failed, retrying in %ds; recall uses full text meanwhile",
+                retry_seconds)
+            time.sleep(retry_seconds)
 
 
 def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client):
@@ -124,6 +142,21 @@ def export(path: Path, db: Path = DbOpt):
     path.write_text(json.dumps(importers.export_json(open_store(db)), ensure_ascii=False,
                                indent=1), encoding="utf-8")
     typer.echo(f"written {path}")
+
+
+@app.command()
+def backup(path: Path, db: Path = DbOpt):
+    """Consistent copy of the database, safe while the server is running."""
+    import sqlite3
+
+    src = connect(db)
+    dst = sqlite3.connect(path)
+    with dst:
+        src.backup(dst)
+    n = dst.execute("SELECT count(*) FROM memory").fetchone()[0]
+    dst.close()
+    src.close()
+    typer.echo(f"written {path} ({n} memories)")
 
 
 @app.command()

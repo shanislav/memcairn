@@ -3,13 +3,16 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[vector]" && useradd --system --uid 10001 memcairn \
+RUN pip install --no-cache-dir ".[vector]" \
+    && useradd --system --create-home --uid 10001 memcairn \
     && mkdir /data && chown memcairn /data
 
 USER memcairn
-# The embedding model is downloaded on first start into the data volume.
+# The embedding model is downloaded on first start into the data volume; the Hugging Face
+# client also needs a writable cache/log directory, kept there too.
 ENV MEMCAIRN_DB=/data/memcairn.db \
-    MEMCAIRN_MODEL_DIR=/data/models
+    MEMCAIRN_MODEL_DIR=/data/models \
+    HF_HOME=/data/models/hf
 VOLUME /data
 EXPOSE 8765
 
