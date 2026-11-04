@@ -175,4 +175,4 @@ def test_ids_are_not_status():
     from memcairn.format import STATUS_LIKE
     assert not STATUS_LIKE.search("feeder uuid 3f2a9c1e-77b4-4d0e-9a11-0c5e8b7d6f21 on adsb")
     assert not STATUS_LIKE.search("docker_lan bridge is br-512cbdcc4ef3")
-    assert STATUS_LIKE.search("merged and deployed 4455523 to dev")
+    assert STATUS_LIKE.search("merged and deployed c34baa5 to dev")
