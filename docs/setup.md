@@ -309,6 +309,15 @@ it's used.
 
 ## 5. Managing clients
 
+**In a browser:** open `https://memory.example.com/ui` and enter a client token (create
+one for yourself, e.g. `token add browser`). You can search like the agents do (including
+deep mode and time words), filter by type, entity and todo status, open a fact with its
+version history and the facts it replaced, edit it (or save the change as a new version
+when it changed in reality), forget and restore, add a fact, read shared documents, and
+see the review list and usage stats. Edits are versioned and recorded as that client.
+The token stays in the browser tab unless you tick "remember"; the page itself holds no
+data. It works on a phone too, through the same address as the rest of the server.
+
 `memcairn chronicle "FireClu3"` prints everything memory knows about a topic in date
 order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup
 replaced. `--out file.md` writes it to a file and `--current-only` leaves out the replaced

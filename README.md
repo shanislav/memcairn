@@ -66,6 +66,7 @@ deployment, multiple machines, scopes, migration and troubleshooting:
   reverts), `memcairn doctor` checks the setup.
 - Without the plugin, or for other MCP clients:
   `claude mcp add --transport http memory https://memory.example.com/mcp --header "Authorization: Bearer <token>"`
+- Browse and edit memory in a browser at `https://<server>/ui` (log in with a client token).
 - Local only, no server: `claude mcp add memcairn -- memcairn serve --client my-laptop`
 - Migrate the official memory server: `memcairn import server-memory ~/.claude/memory.json`
 

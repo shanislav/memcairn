@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memcairn</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --accent: #2f6f5e; --accent-ink: #fff; --warn: #a3412c; --chip: #ecebe6; --hl: #fff4c2;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151614; --panel: #1e1f1c; --ink: #e8e7e2; --muted: #9a9a93; --line: #31322e;
+    --accent: #6fb8a2; --accent-ink: #10201b; --warn: #e2846f; --chip: #2a2b27; --hl: #3d3a22; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; background: var(--panel);
+  border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; gap: 10px;
+  align-items: center; flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: .02em; }
+nav button { background: none; border: 0; padding: 6px 10px; border-radius: 6px;
+  color: var(--muted); font: inherit; cursor: pointer; }
+nav button.on { background: var(--chip); color: var(--ink); }
+input, select, textarea, button { font: inherit; color: var(--ink); }
+input, select, textarea { background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 9px; }
+textarea { width: 100%; min-height: 9em; resize: vertical; }
+button.act { background: var(--accent); color: var(--accent-ink); border: 0;
+  border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+button.ghost { background: none; border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 12px; cursor: pointer; }
+button.danger { color: var(--warn); }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.bar input[type=search] { flex: 1 1 260px; }
+.list { display: flex; flex-direction: column; gap: 6px; }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 12px; cursor: pointer; }
+.item:hover { border-color: var(--accent); }
+.meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; }
+.chip.todo-open { background: var(--hl); }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+#detail { position: fixed; inset: 0 0 0 auto; width: min(620px, 100%); background: var(--panel);
+  border-left: 1px solid var(--line); z-index: 3; overflow: auto; padding: 16px;
+  box-shadow: -8px 0 24px rgba(0,0,0,.12); transform: translateX(100%); transition: transform .15s; }
+#detail.open { transform: none; }
+#detail h2 { margin: 0 0 8px; font-size: 16px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.grid label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); }
+.hist { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 8px; font-size: 13px; }
+.hist div { padding: 6px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; }
+pre { white-space: pre-wrap; background: var(--bg); padding: 10px; border-radius: 6px;
+  font: 13px/1.4 ui-monospace, Consolas, monospace; overflow: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+td, th { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+#gate { max-width: 420px; margin: 12vh auto; background: var(--panel); padding: 20px;
+  border: 1px solid var(--line); border-radius: 10px; }
+#gate input { width: 100%; margin: 10px 0; }
+.msg { color: var(--warn); font-size: 14px; min-height: 1.2em; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } header h1 { width: 100%; } }
+</style>
+</head>
+<body>
+<div id="gate" hidden>
+  <h1 style="margin-top:0">Memcairn</h1>
+  <p>Enter a client token (<code>memcairn token add &lt;name&gt;</code>). It stays in this
+  browser tab only, unless you tick the box.</p>
+  <input id="tok" type="password" placeholder="mcn_…" autocomplete="off">
+  <label><input id="keep" type="checkbox"> remember on this device</label>
+  <div class="row"><button class="act" id="enter">Open</button></div>
+  <div class="msg" id="gatemsg"></div>
+</div>
+
+<div id="app" hidden>
+<header>
+  <h1>Memcairn</h1>
+  <nav>
+    <button data-tab="memory" class="on">Memory</button>
+    <button data-tab="docs">Documents</button>
+    <button data-tab="review">Review</button>
+    <button data-tab="stats">Stats</button>
+  </nav>
+  <span style="flex:1"></span>
+  <span class="meta" id="who"></span>
+  <button class="ghost" id="logout">Sign out</button>
+</header>
+<main>
+  <section data-pane="memory">
+    <div class="bar">
+      <input type="search" id="q" placeholder="Search memory (words, a question, 'last week'…)">
+      <select id="ftype"><option value="">all types</option></select>
+      <input id="fent" list="ents" placeholder="entity">
+      <datalist id="ents"></datalist>
+      <select id="fstatus"><option value="">any status</option><option>open</option>
+        <option>done</option><option>dropped</option></select>
+      <label class="meta"><input type="checkbox" id="deep"> deep</label>
+      <button class="ghost" id="new">+ New</button>
+    </div>
+    <div class="meta" id="count"></div>
+    <div class="list" id="results"></div>
+  </section>
+  <section data-pane="docs" hidden><div class="list" id="doclist"></div><div id="docview"></div></section>
+  <section data-pane="review" hidden><div id="reviewlist"></div></section>
+  <section data-pane="stats" hidden><div id="statsview"></div></section>
+</main>
+</div>
+
+<aside id="detail"></aside>
+
+<script>
+const TYPES = ["fact", "project", "feedback", "reference", "decision", "todo", "howto", "user"];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = {
+  get() { try { return sessionStorage.getItem("mc_tok") || localStorage.getItem("mc_tok"); } catch { return null; } },
+  set(t, keep) { try { sessionStorage.setItem("mc_tok", t); if (keep) localStorage.setItem("mc_tok", t); } catch {} },
+  clear() { try { sessionStorage.removeItem("mc_tok"); localStorage.removeItem("mc_tok"); } catch {} },
+};
+let token = store.get();
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Authorization": "Bearer " + token,
+    "Content-Type": "application/json", ...(opts.headers || {}) } });
+  if (res.status === 401) { store.clear(); token = null; showGate("Token not accepted."); throw new Error("unauthorized"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function showGate(msg = "") { $("#app").hidden = true; $("#gate").hidden = false; $("#gatemsg").textContent = msg; $("#tok").focus(); }
+async function start() {
+  $("#gate").hidden = true; $("#app").hidden = false;
+  try {
+    const s = await api("/api/stats");
+    $("#who").textContent = `as ${s.client || "?"} · ${s.stats.memories} memories`;
+  } catch { return; }
+  TYPES.forEach(t => $("#ftype").insertAdjacentHTML("beforeend", `<option>${t}</option>`));
+  api("/api/entities").then(es => $("#ents").innerHTML = es.map(e => `<option value="${esc(e.name)}">${e.facts}</option>`).join(""));
+  search();
+}
+
+$("#enter").onclick = () => { token = $("#tok").value.trim(); if (!token) return; store.set(token, $("#keep").checked); start(); };
+$("#tok").onkeydown = e => { if (e.key === "Enter") $("#enter").click(); };
+$("#logout").onclick = () => { store.clear(); token = null; showGate(); };
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+  ({ docs: loadDocs, review: loadReview, stats: loadStats })[b.dataset.tab]?.();
+});
+
+let timer;
+["#q", "#fent"].forEach(s => $(s).oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); });
+["#ftype", "#fstatus", "#deep"].forEach(s => $(s).onchange = search);
+
+function chips(m) {
+  const st = m.status ? `<span class="chip ${m.type === "todo" && m.status === "open" ? "todo-open" : ""}">${esc(m.status)}</span>` : "";
+  return `<span class="chip">m${m.id}</span><span class="chip">${esc(m.type)}</span>` +
+    (m.entity_name ? `<span>${esc(m.entity_name)}</span>` : "") + st +
+    (m.pinned ? `<span class="chip">pinned</span>` : "") +
+    `<span>${esc((m.updated_at || m.recorded_at || "").slice(0, 10))}</span>` +
+    (m.client ? `<span>by ${esc(m.client)}</span>` : "");
+}
+
+async function search() {
+  const p = new URLSearchParams({ q: $("#q").value, type: $("#ftype").value, entity: $("#fent").value,
+    status: $("#fstatus").value, deep: $("#deep").checked ? "1" : "0", limit: "60" });
+  try {
+    const r = await api("/api/search?" + p);
+    const parts = (r.parts || []).map(c => `<div class="item" data-doc="${esc(c.doc)}" data-anchor="${esc(c.anchor)}">
+      <div class="meta"><span class="chip">doc</span><span>${esc(c.doc)}</span><span>${esc(c.path)}</span></div>
+      <div>${esc(c.content.slice(0, 300))}</div></div>`).join("");
+    const items = r.items.map(m => `<div class="item" data-id="${m.id}"><div class="meta">${chips(m)}</div>
+      <div>${esc(m.content)}</div></div>`).join("");
+    $("#count").textContent = $("#q").value ? `${r.items.length} facts${r.parts?.length ? `, ${r.parts.length} document parts` : ""}${r.coverage < .5 ? " · low confidence" : ""}` : "most recently changed";
+    $("#results").innerHTML = parts + items || `<div class="empty">Nothing found${$("#deep").checked ? "" : " — try deep"}.</div>`;
+  } catch (e) { $("#results").innerHTML = `<div class="msg">${esc(e.message)}</div>`; }
+}
+
+$("#results").onclick = e => {
+  const it = e.target.closest(".item"); if (!it) return;
+  if (it.dataset.id) openMemory(+it.dataset.id);
+  else openDocPart(it.dataset.doc, it.dataset.anchor);
+};
+
+function close() { $("#detail").classList.remove("open"); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+
+async function openMemory(id) {
+  const d = await api(`/api/memory/${id}`); const m = d.memory;
+  const opts = TYPES.map(t => `<option ${t === m.type ? "selected" : ""}>${t}</option>`).join("");
+  const gone = !!m.deleted_at, old = !!m.superseded_by;
+  $("#detail").innerHTML = `
+    <div class="row" style="justify-content:space-between;margin:0"><h2>m${m.id} · v${m.version}</h2>
+      <button class="ghost" id="x">Close</button></div>
+    <div class="meta">${chips(m)}${gone ? '<span class="chip">forgotten</span>' : ""}${old ? `<span class="chip">replaced by m${m.superseded_by}</span>` : ""}</div>
+    <textarea id="content">${esc(m.content)}</textarea>
+    <div class="grid">
+      <label>type<select id="type">${opts}</select></label>
+      <label>entity<input id="entity" value="${esc(m.entity_name || "")}" list="ents"></label>
+      <label>status<select id="status"><option value="">—</option>${["open","done","dropped"].map(s => `<option ${s === m.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+      <label>pinned<select id="pinned"><option value="0">no</option><option value="1" ${m.pinned ? "selected" : ""}>yes</option></select></label>
+    </div>
+    <div class="row">
+      <button class="act" id="save">Save (edit)</button>
+      <button class="ghost" id="supersede" title="the fact changed in reality: keep the old one as history">Save as new version</button>
+      <button class="ghost danger" id="forget">${gone ? "Restore" : "Forget"}</button>
+    </div>
+    <div class="msg" id="dmsg"></div>
+    <div class="hist"><b>History</b>${d.history.map(h => `<div><span class="meta">v${h.version} · ${esc(h.at.slice(0,16))} · ${esc(h.op)} · by ${esc(h.by || "-")}</span>\n${esc(h.content)}</div>`).join("")}
+    ${d.replaced.length ? `<b>Replaced earlier facts</b>${d.replaced.map(r => `<div><span class="meta">m${r.id} · ${esc(r.recorded_at.slice(0,10))}</span>\n${esc(r.content)}</div>`).join("")}` : ""}</div>`;
+  $("#detail").classList.add("open");
+  $("#x").onclick = close;
+  const body = supersede => {
+    const b = { content: $("#content").value, type: $("#type").value, entity: $("#entity").value || null,
+      pinned: $("#pinned").value === "1", expected_version: m.version, supersede };
+    if ($("#status").value) b.status = $("#status").value;
+    return JSON.stringify(b);
+  };
+  const run = async f => { try { await f(); search(); } catch (e) { $("#dmsg").textContent = e.message; } };
+  $("#save").onclick = () => run(async () => { const r = await api(`/api/memory/${id}`, { method: "POST", body: body(false) }); openMemory(r.memory.id); });
+  $("#supersede").onclick = () => run(async () => { const r = await api(`/api/memory/${id}`, { method: "POST", body: body(true) }); openMemory(r.memory.id); });
+  $("#forget").onclick = () => run(async () => {
+    if (!gone && !confirm(`Forget m${id}? (it can be restored)`)) return;
+    await api(`/api/memory/${id}/forget`, { method: "POST", body: JSON.stringify({ undo: gone }) }); openMemory(id);
+  });
+}
+
+$("#new").onclick = () => {
+  $("#detail").innerHTML = `<div class="row" style="justify-content:space-between;margin:0"><h2>New fact</h2><button class="ghost" id="x">Close</button></div>
+    <p class="meta">One short atomic fact. No passwords or tokens (the server refuses them).</p>
+    <textarea id="content"></textarea>
+    <div class="grid"><label>type<select id="type">${TYPES.map(t => `<option>${t}</option>`).join("")}</select></label>
+      <label>entity<input id="entity" list="ents"></label></div>
+    <div class="row"><button class="act" id="save">Save</button></div><div class="msg" id="dmsg"></div>`;
+  $("#detail").classList.add("open"); $("#x").onclick = close; $("#content").focus();
+  $("#save").onclick = async () => {
+    try {
+      const r = await api("/api/memory", { method: "POST", body: JSON.stringify({ content: $("#content").value, type: $("#type").value, entity: $("#entity").value }) });
+      search(); openMemory(r.memory.id);
+      if (r.duplicates.length) setTimeout(() => $("#dmsg").textContent = "Possible duplicates: " + r.duplicates.map(i => "m" + i).join(", "), 50);
+    } catch (e) { $("#dmsg").textContent = e.message; }
+  };
+};
+
+async function loadDocs() {
+  const ds = await api("/api/docs");
+  $("#doclist").innerHTML = ds.map(d => `<div class="item" data-doc="${esc(d.name)}"><div class="meta"><span class="chip">v${d.version}</span>
+    <span>${d.size} chars</span><span>${esc(d.updated_at.slice(0,10))}</span><span>by ${esc(d.client || "-")}</span></div><b>${esc(d.name)}</b></div>`).join("") || `<div class="empty">No shared documents.</div>`;
+  $("#doclist").onclick = e => { const it = e.target.closest(".item"); if (it) openDocPart(it.dataset.doc); };
+}
+
+async function openDocPart(name, anchor) {
+  const res = await fetch(`/docs/${encodeURIComponent(name)}`, { headers: { "Authorization": "Bearer " + token } });
+  const d = await res.json();
+  $("#detail").innerHTML = `<div class="row" style="justify-content:space-between;margin:0"><h2>${esc(name)} · v${d.version}</h2><button class="ghost" id="x">Close</button></div>
+    <p class="meta">Edit shared documents where they live (the synced file); this view is read-only.</p><pre id="doctext">${esc(d.content)}</pre>`;
+  $("#detail").classList.add("open"); $("#x").onclick = close;
+  if (anchor) { /* scroll near the part: first occurrence of its first words */ }
+}
+
+async function loadReview() {
+  const items = await api("/api/review");
+  $("#reviewlist").innerHTML = items.length ? `<p class="meta">What could be cleaned up, biggest token savings first. Click an id to open it.</p>
+    <table><tr><th>kind</th><th>memories</th><th>entity</th><th>~tokens</th><th>suggestion</th></tr>
+    ${items.map(i => `<tr><td>${esc(i.kind)}</td><td>${i.ids.map(x => `<a href="#" data-id="${x}">m${x}</a>`).join(" ")}</td>
+    <td>${esc(i.entity || "")}</td><td>${i.saving}</td><td>${esc(i.action)}<div class="meta">${esc(i.text)}</div></td></tr>`).join("")}</table>`
+    : `<div class="empty">Nothing to clean up.</div>`;
+  $("#reviewlist").onclick = e => { const a = e.target.closest("a[data-id]"); if (a) { e.preventDefault(); openMemory(+a.dataset.id); } };
+}
+
+async function loadStats() {
+  const s = await api("/api/stats");
+  $("#statsview").innerHTML = `<table>${Object.entries(s.stats).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join("")}</table>
+    <h3>Tool calls, last 7 days</h3><table><tr><th>tool</th><th>calls</th><th>avg tokens</th><th>max</th><th>empty</th><th>avg ms</th></tr>
+    ${s.usage.map(u => `<tr><td>${esc(u.tool)}</td><td>${u.calls}</td><td>${u.avg_tokens}</td><td>${u.max_tokens}</td><td>${u.empty}</td><td>${u.avg_ms}</td></tr>`).join("")}</table>`;
+}
+
+token ? start() : showGate();
+</script>
+</body>
+</html>

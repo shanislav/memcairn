@@ -304,6 +304,10 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
                 return HTMLResponse(approve_page(name, host, req, "Unknown or revoked token."),
                                     401)
 
+    from . import webapi
+
+    webapi.register(mcp, store, authorize)
+
     @mcp.custom_route("/docs", methods=["GET"])
     async def docs_list(request):
         from starlette.responses import JSONResponse, PlainTextResponse

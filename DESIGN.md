@@ -294,5 +294,5 @@ Packaging: PyPI (`uvx memcairn`), Docker image.
 | 3 ✅ | Session-start injection (`GET /context` + SessionStart hook), ranked context, todo status, Claude Code memory-folder import, shared versioned documents with `memcairn sync` (per-machine file list, three-way merge, conflicts left to the user) |
 | 3 ✅ | Claude Code plugin (MCP server with keychain token, fail-open SessionStart hook, manual-only skills, usage rules in MCP instructions) + opt-in `memcairn setup`/`unsetup`; `token add` prints connect steps |
 | 4 (started) | ✅ daily review → one self-closing cleanup todo; ✅ synonym groups in recall; ✅ `memcairn purge` + secure_delete. Next: consolidation proposals beyond long/status (similar pairs, stale todos), optional LLM backend |
-| 5 (started) | ✅ OAuth 2.1 for claude.ai/mobile connectors (DCR, PKCE, rotated refresh tokens, approval by pasting a client token; opt-in `MEMCAIRN_OAUTH`). Next: web dashboard |
+| 5 (started) | ✅ OAuth 2.1 for claude.ai/mobile connectors (DCR, PKCE, rotated refresh tokens, approval by pasting a client token; opt-in `MEMCAIRN_OAUTH`). ✅ web UI at `/ui` (search, edit with history, forget/restore, documents, review, stats) |
 | 6 | Retrieval eval suite, PyPI + Docker release, docs |
