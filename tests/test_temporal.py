@@ -38,3 +38,10 @@ def test_recall_filters_by_time():
     assert [h.memory["id"] for h in hits] == [new["id"]]
     only_time = store.recall("2026-09").hits  # time alone lists that period
     assert [h.memory["id"] for h in only_time] == [old["id"]]
+
+
+def test_filler_words_fall_back_to_the_period():
+    store = Store(connect(":memory:"))
+    row, _ = store.remember("firewall rule removed", recorded_at="2026-10-20T00:00:00Z")
+    hits = store.recall("čo sa robilo v októbri 2026").hits
+    assert [h.memory["id"] for h in hits] == [row["id"]]

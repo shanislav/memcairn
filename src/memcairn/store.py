@@ -648,18 +648,21 @@ class Store:
         qterms = query_terms(query)
         base = """SELECT m.*, e.name AS entity_name, s.key AS scope_key {rank} FROM {src}
                   LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id"""
-        if not qterms:
+        def listing() -> RecallResult:
             sql = base.format(rank=", 0 AS rank", src="memory m")
             sql += " WHERE " + " AND ".join(where)
             order = ("m.updated_at DESC" if since
                      else "m.pinned DESC, m.importance DESC, m.updated_at DESC")
             sql += f" ORDER BY {order} LIMIT {int(limit)}"
-            hits = [self._score(r, qterms) for r in self.conn.execute(sql, args).fetchall()]
+            hits = [self._score(r, []) for r in self.conn.execute(sql, args).fetchall()]
             if current_only:
                 hits = [h for h in hits if not h.memory["superseded_by"]]
             if not since:  # a time-only query keeps newest-first
                 hits.sort(key=lambda h: h.score, reverse=True)
             return RecallResult(hits=hits, coverage=1.0)
+
+        if not qterms:
+            return listing()
 
         # Lexical candidates (FTS5 BM25).
         fts_terms = [stem(t) if deep else t for t in qterms]
@@ -669,6 +672,8 @@ class Store:
         sql += " WHERE memory_fts MATCH ? AND " + " AND ".join(where)
         sql += f" ORDER BY rank LIMIT {int(limit) * (3 if deep else 2)}"
         rows = {r["id"]: r for r in self.conn.execute(sql, (match, *args)).fetchall()}
+        if since and not rows and not deep:
+            return listing()  # "what did we do yesterday": leftover words are just filler
 
         # Semantic candidates, deep mode only: on the benchmark, full text alone already
         # finds almost everything that shares words with the query, and mixing vectors in
