@@ -154,12 +154,10 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
     @mcp.tool(structured_output=False, annotations=READ)
     @safe
     def get(ids: list[str], history: bool = False) -> str:
-        """Full text of memories by id (e.g. m12), or of a shared document (doc:name). history=true adds all versions."""
+        """Full text: m12, doc:name#part, doc:name?toc (outline), doc:name. history=true adds versions."""
         out = []
-        for ref in [i for i in ids if str(i).startswith("doc:")]:
-            d = docs.get_doc(store, str(ref)[4:])
-            out.append(f"doc:{d['name']} v{d['version']} · updated={d['updated_at'][:10]} · "
-                       f"by={d['client'] or '-'} · {len(d['content'])} chars\n{d['content']}")
+        for ref in [str(i) for i in ids if str(i).startswith("doc:")]:
+            out.append(format.doc_ref(store, docs, ref[4:]))
         for row in store.get([i for i in ids if not str(i).startswith("doc:")]):
             text = format.memory_full(row)
             if history:

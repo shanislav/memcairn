@@ -79,6 +79,19 @@ class Hit:
 class RecallResult:
     hits: list[Hit]
     coverage: float  # confidence: best relevance (0-1) of any single hit
+    chunks: list[DocHit] = field(default_factory=list)
+
+
+@dataclass
+class DocHit:
+    """A matching part of a shared document (section or table row)."""
+    doc: str
+    anchor: str
+    path: str
+    kind: str
+    content: str
+    score: float
+    parts: dict[str, float] = field(default_factory=dict)
 
 
 # Cosine similarity mapped to 0..1 relevance; calibrated on the benchmark for the
@@ -753,8 +766,44 @@ class Store:
         if current_only:
             hits = self._promote_successors(hits)
         hits.sort(key=lambda h: h.score, reverse=True)
-        confidence = max((h.parts["rel"] for h in hits), default=0.0)
-        return RecallResult(hits=hits[:limit], coverage=confidence)
+        chunks = self._doc_hits(match, qterms, limit=12 if deep else 6)
+        confidence = max([h.parts["rel"] for h in hits] + [c.parts["rel"] for c in chunks],
+                         default=0.0)
+        return RecallResult(hits=hits[:limit], coverage=confidence, chunks=chunks)
+
+    def _doc_hits(self, match: str, qterms: list[str], limit: int) -> list[DocHit]:
+        """Parts of shared documents matching the query, scored like facts but with a small
+        handicap, so what agents wrote down ranks first on a tie."""
+        try:
+            rows = self.conn.execute(
+                """SELECT c.*, bm25(doc_chunk_fts, 1.0, 0.8, 0.5) AS rank FROM doc_chunk_fts
+                   JOIN doc_chunk c ON c.id = doc_chunk_fts.rowid
+                   WHERE doc_chunk_fts MATCH ? ORDER BY rank LIMIT ?""",
+                (match, limit)).fetchall()
+        except sqlite3.OperationalError:  # no documents table yet (old schema in tests)
+            return []
+        if not rows:
+            return []
+        worst = max(-r["rank"] for r in rows) or 1.0
+        out = []
+        for r in rows:
+            words = set(terms(f"{r['content']} {r['path']} {r['doc_name']}", limit=10_000))
+            stems = {stem(t) for t in words}
+            matched = sum(1 for q in qterms if any(t.startswith(q) for t in words)
+                          or stem(q) in stems or any(t.startswith(stem(q)) for t in words))
+            coverage = matched / len(qterms) if qterms else 0.0
+            bm = -r["rank"] / worst if worst > 0 else 0.0
+            score = round((0.6 * coverage + 0.4 * bm) * 0.75 + 0.15 * 0.4 + 0.1 - 0.02, 3)
+            if r["kind"] == "row" and qterms:
+                # a query word that *starts* a cell names this row ("charon2" → the
+                # Charon2C7 row), not one that merely mentions it ("Snapshot Charon2")
+                cells = [fold(c.strip()) for c in r["content"].splitlines()[-1].split("|")]
+                if any(c.startswith(q) for q in qterms for c in cells if c):
+                    score = round(score + 0.15, 3)
+            out.append(DocHit(r["doc_name"], r["anchor"], r["path"], r["kind"], r["content"],
+                              score, {"coverage": round(coverage, 2), "bm25": round(bm, 2),
+                                      "rel": round(coverage, 2)}))
+        return sorted(out, key=lambda c: c.score, reverse=True)
 
     def _promote_successors(self, hits: list[Hit]) -> list[Hit]:
         """Replace superseded hits by the current version of the fact (one hit per fact)."""

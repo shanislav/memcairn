@@ -75,4 +75,67 @@ def put_doc(store: Store, name: str, content: str, *, base_version: int,
         store.conn.execute(
             """INSERT INTO document_version (name, version, sha, content, updated_at, client)
                VALUES (?,?,?,?,?,?)""", (name, version, digest, content, t, client))
+    index_doc(store, name)
     return get_doc(store, name)
+
+
+# ---------- parts index: documents searchable section by section ----------
+
+def index_doc(store: Store, name: str) -> dict[str, int]:
+    """(Re)index a document's parts; unchanged parts (same anchor and hash) are kept."""
+    from .chunks import chunk_markdown
+
+    doc = get_doc(store, name)
+    chunks = chunk_markdown(doc["content"])
+    stats = {"kept": 0, "added": 0, "changed": 0, "removed": 0}
+    with store._tx():
+        old = {r["anchor"]: r for r in store.conn.execute(
+            "SELECT id, anchor, sha FROM doc_chunk WHERE doc_name = ?", (name,))}
+        for n, c in enumerate(chunks):
+            prev = old.pop(c.anchor, None)
+            if prev and prev["sha"] == c.sha:
+                store.conn.execute("UPDATE doc_chunk SET doc_version = ?, ord = ? WHERE id = ?",
+                                   (doc["version"], n, prev["id"]))
+                stats["kept"] += 1
+                continue
+            if prev:
+                store.conn.execute(
+                    """UPDATE doc_chunk SET path = ?, kind = ?, content = ?, sha = ?,
+                       doc_version = ?, ord = ? WHERE id = ?""",
+                    (c.path, c.kind, c.content, c.sha, doc["version"], n, prev["id"]))
+                cid = prev["id"]
+                store.conn.execute("DELETE FROM doc_chunk_fts WHERE rowid = ?", (cid,))
+                stats["changed"] += 1
+            else:
+                cid = store.conn.execute(
+                    """INSERT INTO doc_chunk (doc_name, anchor, path, kind, content, sha,
+                       doc_version, ord) VALUES (?,?,?,?,?,?,?,?)""",
+                    (name, c.anchor, c.path, c.kind, c.content, c.sha, doc["version"],
+                     n)).lastrowid
+                stats["added"] += 1
+            store.conn.execute(
+                "INSERT INTO doc_chunk_fts (rowid, content, path, doc) VALUES (?,?,?,?)",
+                (cid, c.content, c.path, name.replace("_", " ")))
+        for r in old.values():
+            store.conn.execute("DELETE FROM doc_chunk WHERE id = ?", (r["id"],))
+            store.conn.execute("DELETE FROM doc_chunk_fts WHERE rowid = ?", (r["id"],))
+            stats["removed"] += 1
+    return stats
+
+
+def index_all(store: Store) -> int:
+    """Index documents whose parts are missing or from an older version. Returns how many."""
+    stale = store.conn.execute(
+        """SELECT d.name FROM document d WHERE NOT EXISTS (SELECT 1 FROM doc_chunk c
+           WHERE c.doc_name = d.name AND c.doc_version = d.version)""").fetchall()
+    for r in stale:
+        index_doc(store, r["name"])
+    return len(stale)
+
+
+def get_chunk(store: Store, name: str, anchor: str) -> sqlite3.Row:
+    row = store.conn.execute("SELECT * FROM doc_chunk WHERE doc_name = ? AND anchor = ?",
+                             (name, anchor)).fetchone()
+    if not row:
+        raise NotFound(f"doc:{name}#{anchor} not found (document changed? see doc:{name}?toc)")
+    return row

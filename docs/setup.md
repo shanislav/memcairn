@@ -266,8 +266,23 @@ the part of your `CLAUDE.md` every machine should share, a long project plan. Me
 stores these as **shared documents**. Every version is kept, and each machine syncs only
 the files you list.
 
-Agents can open a document with `get(ids=["doc:servers"])`. A `reference` memory pointing
-at it makes it findable by `recall`.
+**Documents are searched part by part.** Each one is split at headings (H1–H3), and every
+table row becomes its own part with the table header attached. `recall` returns the
+matching part next to facts:
+
+```
+doc:servers#192-168-20-11 · doc · Firewall · IP: 192.168.20.11 · Name: FireClu1 · …
+```
+
+That costs ~70 tokens instead of reading a whole 14 KB inventory. Recall shows at most two
+parts, one per document (four in deep mode), so facts aren't crowded out. `get` reads:
+
+- `doc:servers#part`: just that part (with its heading path and the table header);
+- `doc:servers?toc`: the outline and part ids;
+- `doc:servers`: the whole document.
+
+Parts are re-indexed when a document changes. Unchanged parts keep their ids, and a row's
+id comes from its first cell, so reordering rows doesn't renumber anything.
 
 **Choose what to sync** in `~/.memcairn/sync.toml` (nothing is synced without it):
 

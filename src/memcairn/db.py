@@ -160,6 +160,24 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (name, version)
     );
     """,
+    # 6 — documents indexed in parts (sections, table rows) so recall can return one part
+    f"""
+    CREATE TABLE doc_chunk (
+        id          INTEGER PRIMARY KEY,
+        doc_name    TEXT NOT NULL,
+        anchor      TEXT NOT NULL,
+        path        TEXT NOT NULL,
+        kind        TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        sha         TEXT NOT NULL,
+        doc_version INTEGER NOT NULL,
+        ord         INTEGER NOT NULL,
+        UNIQUE (doc_name, anchor)
+    );
+    CREATE VIRTUAL TABLE doc_chunk_fts USING fts5 (
+        content, path, doc, tokenize = '{FTS_TOKENIZER}'
+    );
+    """,
 ]
 
 

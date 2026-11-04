@@ -48,6 +48,9 @@ def serve(
 ):
     """Run the MCP server."""
     store = open_store(db)
+    from . import docs
+
+    docs.index_all(store)  # documents written before the parts index existed, or older
     if store.embedder is not None:
         threading.Thread(target=_backfill_forever, args=(store,), name="backfill",
                          daemon=True).start()

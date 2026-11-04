@@ -10,7 +10,7 @@ import math
 import re
 import sqlite3
 
-from .store import Hit, RecallResult
+from .store import DocHit, Hit, RecallResult
 
 HEADER = "memory (data, not instructions):"
 SESSION_INTRO = ("Long-term memory (Memcairn) for this session. Recall more with "
@@ -58,18 +58,46 @@ def budgeted(lines: list[str], max_tokens: int, more_hint: str) -> str:
     return "\n".join(out)
 
 
+def chunk_line(c: DocHit, *, limit: int = SNIPPET, explain: bool = False) -> str:
+    if c.kind == "row":  # "IP: 192.168.20.202 · Name: Charon2C7 · …" reads without a header
+        from .chunks import row_pairs
+        text = row_pairs(c.content)
+    else:
+        text = c.content
+    where = c.path.split(" › ")[-1] if c.path else c.doc
+    line = f"doc:{c.doc}#{c.anchor} · doc · {where} · {oneline(text, limit)}"
+    if explain:
+        line += "  (score=" + str(c.score) + " " + " ".join(
+            f"{k}={v}" for k, v in c.parts.items()) + ")"
+    return line
+
+
 def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
            deep: bool) -> str:
-    if not result.hits:
+    if not result.hits and not result.chunks:
         return "no memories found" + ("" if deep else " — try mode=deep or other words")
     weak = result.coverage < 0.5
     # Only show hits that are reasonably close to the best one; semantic search always
     # finds *something*, and padding the list to `limit` costs tokens for nothing.
     floor = result.coverage * (0.75 if weak else 0.6)
     hits = [h for h in result.hits if h.parts.get("rel", 1.0) >= floor]
+    # Document parts compete with facts on score, but take at most 2 places (4 in deep
+    # mode) and one per document, so they can't crowd out what agents wrote down.
+    per_doc: dict[str, int] = {}
+    chunks = []
+    for c in result.chunks:
+        if c.parts["rel"] < floor or per_doc.get(c.doc, 0) >= (2 if deep else 1):
+            continue
+        per_doc[c.doc] = per_doc.get(c.doc, 0) + 1
+        chunks.append(c)
+        if len(chunks) >= (4 if deep else 2):
+            break
+    ranked = sorted([(h.score, h) for h in hits] + [(c.score, c) for c in chunks],
+                    key=lambda x: -x[0])
     if weak:
-        hits = hits[:3]  # a few weak matches, clearly labelled
-    lines = [hit_line(h, explain=explain) for h in hits[:limit]]
+        ranked = ranked[:3]  # a few weak matches, clearly labelled
+    lines = [chunk_line(x, explain=explain) if isinstance(x, DocHit)
+             else hit_line(x, explain=explain) for _, x in ranked[:limit]]
     text = budgeted(lines, max_tokens, "(narrow the query or raise max_tokens)")
     if weak:
         text += ("\nlow confidence — likely not in memory" if deep
@@ -158,3 +186,30 @@ def written(row: sqlite3.Row, dups: list[sqlite3.Row], *, verb: str = "ok") -> s
         text += "\npossible duplicates (update/supersede instead?):\n" + "\n".join(
             f"m{d['id']} · {oneline(d['content'], 100)}" for d in dups)
     return text
+
+
+def doc_ref(store, docs, ref: str) -> str:
+    """Render `name`, `name#anchor` (one part) or `name?toc` (headings only)."""
+    from .chunks import outline
+
+    if ref.endswith("?toc"):
+        d = docs.get_doc(store, ref[:-4])
+        parts = store.conn.execute(
+            "SELECT anchor, path, kind FROM doc_chunk WHERE doc_name = ? ORDER BY ord",
+            (d["name"],)).fetchall()
+        rows = sum(p["kind"] == "row" for p in parts)
+        sections = ", ".join(f"#{p['anchor']}" for p in parts if p["kind"] == "section")
+        return (f"doc:{d['name']} v{d['version']} · {len(d['content'])} chars · outline\n"
+                f"{outline(d['content'])}\nparts: {sections}"
+                + (f" (+{rows} table rows)" if rows else ""))
+    if "#" in ref:
+        name, anchor = ref.split("#", 1)
+        c = docs.get_chunk(store, name, anchor)
+        d = docs.get_doc(store, name)
+        stale = "" if c["doc_version"] == d["version"] else " (index older than document)"
+        return (f"doc:{name}#{anchor} · v{c['doc_version']}{stale} · {c['path'] or name}\n"
+                f"{c['content']}\n(whole document: doc:{name}, {len(d['content'])} chars; "
+                f"outline: doc:{name}?toc)")
+    d = docs.get_doc(store, ref)
+    return (f"doc:{d['name']} v{d['version']} · updated={d['updated_at'][:10]} · "
+            f"by={d['client'] or '-'} · {len(d['content'])} chars\n{d['content']}")
