@@ -13,7 +13,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from . import secretscan
+from . import secretscan, temporal
 from .db import now
 
 log = logging.getLogger(__name__)
@@ -625,6 +625,11 @@ class Store:
         chain = self.scope_chain(scope)
         where = [f"m.scope_id IN ({','.join('?' * len(chain))})", "m.deleted_at IS NULL"]
         args: list = list(chain)
+        query, since, until = temporal.parse(query)
+        if since:  # "last week", "v októbri", "2026-10"...: written or changed in that range
+            where.append("((m.recorded_at >= ? AND m.recorded_at < ?) OR "
+                         "(m.updated_at >= ? AND m.updated_at < ?))")
+            args += [since.isoformat(), until.isoformat()] * 2
         current_only = not (deep or include_old)
         if current_only:
             # Superseded facts stay searchable: when an old wording matches the query best,
@@ -646,11 +651,14 @@ class Store:
         if not qterms:
             sql = base.format(rank=", 0 AS rank", src="memory m")
             sql += " WHERE " + " AND ".join(where)
-            sql += f" ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT {int(limit)}"
+            order = ("m.updated_at DESC" if since
+                     else "m.pinned DESC, m.importance DESC, m.updated_at DESC")
+            sql += f" ORDER BY {order} LIMIT {int(limit)}"
             hits = [self._score(r, qterms) for r in self.conn.execute(sql, args).fetchall()]
             if current_only:
                 hits = [h for h in hits if not h.memory["superseded_by"]]
-            hits.sort(key=lambda h: h.score, reverse=True)
+            if not since:  # a time-only query keeps newest-first
+                hits.sort(key=lambda h: h.score, reverse=True)
             return RecallResult(hits=hits, coverage=1.0)
 
         # Lexical candidates (FTS5 BM25).

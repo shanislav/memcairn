@@ -97,7 +97,7 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         explain: bool = False,
         scope: str | None = None,
     ) -> str:
-        """Search memory. Returns compact hits (id · type · entity · snippet); use get for full text. Use mode=deep when nothing relevant is found."""
+        """Search memory. Returns compact hits (id · type · entity · snippet); use get for full text. Use mode=deep when nothing relevant is found. Time words (last week, v októbri, 2026-10) filter by date."""
         deep = mode == "deep"
         res = store.recall(query, scope=default_scope(scope), type=type, entity=entity, deep=deep)
         return format.recall(res, max_tokens=max_tokens if not deep else max(max_tokens, 1500),
