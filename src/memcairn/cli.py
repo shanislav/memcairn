@@ -99,8 +99,11 @@ def _serve(store, transport, host, port, public_url, allowed_host, no_auth, comp
 
 @token_app.command("add")
 def token_add(name: str, scope: str = typer.Option("global", help="Default scope."),
-              db: Path = DbOpt):
-    """Create a client and print its token (shown once)."""
+              db: Path = DbOpt,
+              url: str = typer.Option(None, envvar="MEMCAIRN_PUBLIC_URL",
+                                      help="Public server URL, for the connect instructions."),
+              quiet: bool = typer.Option(False, "--quiet", help="Print only the token.")):
+    """Create a client and print its token (shown once) with ready connect instructions."""
     store = open_store(db, vectors=False)
     token = "mcn_" + secrets.token_urlsafe(32)
     with store._tx():
@@ -110,7 +113,33 @@ def token_add(name: str, scope: str = typer.Option("global", help="Default scope
                ON CONFLICT(name) DO UPDATE SET token_hash = excluded.token_hash,
                default_scope = excluded.default_scope, revoked_at = NULL""",
             (name, hash_token(token), scope, now()))
-    typer.echo(token)
+    if quiet:
+        typer.echo(token)
+        return
+    typer.echo(connect_text(name, token, url))
+
+
+def connect_text(name: str, token: str, url: str | None) -> str:
+    """What to send to the person setting up `name`: token plus copy-paste steps."""
+    url = (url or "https://<your-server>").rstrip("/").removesuffix("/mcp")
+    return f"""Token for {name} (shown only now): {token}
+
+Send this to whoever sets up {name}:
+--------------------------------------------------------------------------
+Connect Claude Code to Memcairn memory
+
+In Claude Code type:
+  /plugin marketplace add shanislav/memcairn
+  /plugin install memcairn@memcairn
+When asked, enter
+  Server URL: {url}
+  Token:      {token}
+Restart Claude Code. That's all.
+
+No /plugin command (e.g. the desktop app)? In a terminal with the claude CLI:
+  claude plugin marketplace add shanislav/memcairn
+  claude plugin install memcairn@memcairn --config url={url} --config token={token}
+--------------------------------------------------------------------------"""
 
 
 @token_app.command("list")

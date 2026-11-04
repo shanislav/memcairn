@@ -72,8 +72,10 @@ in `memcairn.db-wal` next to it.
 docker compose exec memcairn memcairn token add work-laptop
 ```
 
-The token is printed once and only its hash is stored. If you lose it, run `token add`
-again with the same name; that replaces the token.
+The token is printed once, together with the connect steps below filled in for this
+server (set `MEMCAIRN_PUBLIC_URL` or pass `--url`; `--quiet` prints the bare token for
+scripts). Only its hash is stored. If you lose it, run `token add` again with the same
+name; that replaces the token.
 
 ### Claude Code: the plugin (recommended)
 
@@ -86,7 +88,21 @@ In Claude Code, run:
 
 It asks for the server URL (`https://memory.example.com`, without `/mcp`) and the token.
 The token goes to the system keychain, not into a settings file. Restart Claude Code.
-Change them later with `/plugin configure memcairn@memcairn`.
+Change them later with `/plugin configure memcairn@memcairn`. (`token add` prints these
+steps with the URL and token filled in, ready to send to whoever sets up that machine.)
+
+**No `/plugin` command** (the Claude desktop app's Code tab, for example): install it
+with the `claude` CLI instead. Plugins installed this way are in user scope, so the
+desktop app uses them too:
+
+```bash
+claude plugin marketplace add shanislav/memcairn
+claude plugin install memcairn@memcairn --config url=https://memory.example.com --config token=<token>
+```
+
+The desktop app ships the CLI even if `claude` is not on your PATH: on Windows it is
+`%LOCALAPPDATA%\Claude-Data\<package>\claude-code\<version>\<hash>\claude.exe` (Store
+install) or under `%APPDATA%\Claude\claude-code\`. These commands need no sign-in.
 
 The plugin adds only:
 

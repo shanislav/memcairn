@@ -33,46 +33,41 @@ On 998 real facts with 50 queries, compared with the official `server-memory`
 | tokens per query (mean / max) | 2,055 / 35,765 | **198 / 449** |
 | tool list (every turn) | 1,247 | **919** |
 
-## Quick start
+## Connect (if someone runs a server for you)
 
-The full guide covers server deployment, connecting machines, multiple instances, scopes,
-agent instructions, migration and troubleshooting: **[docs/setup.md](docs/setup.md)**.
-
-```bash
-uv tool install git+https://github.com/shanislav/memcairn
-memcairn import server-memory ~/.claude/memory.json   # optional: migrate old memory
-```
-
-### Local (stdio)
-
-```bash
-claude mcp add memcairn -- memcairn serve --client my-laptop
-```
-
-### Central server (HTTP, many clients)
-
-```bash
-memcairn token add laptop          # prints a token once
-memcairn serve --transport http --host 0.0.0.0 --port 8765 \
-    --public-url https://memory.example.com
-```
-
-Put it behind TLS (nginx/caddy) and keep it on a private network. On each client, install
-the Claude Code plugin. It asks for the URL and token and keeps the token in the keychain:
+You get a URL and a token. In Claude Code:
 
 ```
 /plugin marketplace add shanislav/memcairn
 /plugin install memcairn@memcairn
 ```
 
-It adds the tools and a short memory overview at session start, and changes nothing else.
-`memcairn setup` offers the optional extras (turn off built-in auto memory, file sync),
-each with a diff and a backup; `memcairn unsetup` reverts them. Without the plugin:
+Enter the URL and token when asked (the token goes to the system keychain), restart
+Claude Code. Done: memory tools, a short memory overview at session start, and the
+usage rules come with it. Nothing else on your machine is changed. No `/plugin` in your
+client (e.g. the desktop app)? See [docs/setup.md](docs/setup.md#claude-code-the-plugin-recommended).
+
+## Run your own server
 
 ```bash
-claude mcp add --transport http memcairn https://memory.example.com/mcp \
-    --header "Authorization: Bearer <token>"
+docker compose up -d                                       # see docs/setup.md
+docker compose exec memcairn memcairn token add laptop     # prints a token + the steps above, ready to send
 ```
+
+Put it behind TLS (nginx/caddy) and keep it on a private network. The full guide covers
+deployment, multiple machines, scopes, migration and troubleshooting:
+**[docs/setup.md](docs/setup.md)**.
+
+### Advanced (optional)
+
+- `uv tool install git+https://github.com/shanislav/memcairn` gives you the `memcairn`
+  CLI on a client: `memcairn setup` offers to turn off Claude Code's built-in auto memory
+  and to sync files (each change shown as a diff, backed up, y/n; `memcairn unsetup`
+  reverts), `memcairn doctor` checks the setup.
+- Without the plugin, or for other MCP clients:
+  `claude mcp add --transport http memory https://memory.example.com/mcp --header "Authorization: Bearer <token>"`
+- Local only, no server: `claude mcp add memcairn -- memcairn serve --client my-laptop`
+- Migrate the official memory server: `memcairn import server-memory ~/.claude/memory.json`
 
 ## Tools
 

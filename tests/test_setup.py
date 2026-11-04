@@ -106,3 +106,20 @@ def test_instructions_stay_small():
     from memcairn.server import INSTRUCTIONS
 
     assert len(INSTRUCTIONS) < 1500  # sent every session; MCP limit is 4096
+
+
+def test_token_add_prints_ready_connect_steps(tmp_path):
+    from typer.testing import CliRunner
+
+    from memcairn.cli import app
+
+    db = str(tmp_path / "m.db")
+    out = CliRunner().invoke(app, ["token", "add", "laptop", "--db", db,
+                                   "--url", "https://m.example.com/mcp"]).output
+    token = out.split("(shown only now): ")[1].split()[0]
+    assert token.startswith("mcn_")
+    assert "/plugin install memcairn@memcairn" in out
+    assert "Server URL: https://m.example.com\n" in out  # /mcp stripped for the plugin
+    assert f"--config token={token}" in out
+    quiet = CliRunner().invoke(app, ["token", "add", "pc", "--db", db, "--quiet"]).output
+    assert quiet.strip().startswith("mcn_") and "\n" not in quiet.strip()
