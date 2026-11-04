@@ -1,0 +1,17 @@
+{
+  "description": "Inject a short memory overview (pinned facts, open todos, top facts; ~500 tokens) at session start. Never blocks: on any error it prints nothing.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -m 3 -H \"Authorization: Bearer $CLAUDE_PLUGIN_OPTION_TOKEN\" \"${CLAUDE_PLUGIN_OPTION_URL%/}/context\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

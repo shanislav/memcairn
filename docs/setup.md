@@ -75,7 +75,50 @@ docker compose exec memcairn memcairn token add work-laptop
 The token is printed once and only its hash is stored. If you lose it, run `token add`
 again with the same name; that replaces the token.
 
-**Claude Code (CLI, desktop app, IDE extensions)**:
+### Claude Code: the plugin (recommended)
+
+In Claude Code, run:
+
+```
+/plugin marketplace add shanislav/memcairn
+/plugin install memcairn@memcairn
+```
+
+It asks for the server URL (`https://memory.example.com`, without `/mcp`) and the token.
+The token goes to the system keychain, not into a settings file. Restart Claude Code.
+Change them later with `/plugin configure memcairn@memcairn`.
+
+The plugin adds only:
+
+| What | Cost |
+|---|---|
+| MCP server `memory` (tools `mcp__plugin_memcairn_memory__recall`, …), usage rules in its MCP instructions | ~1,000 tokens of tool list + ~380 of rules per session |
+| `SessionStart` hook: `curl` of `/context` (pinned facts, open todos, top facts); 3 s limit, prints nothing on error | ~500 tokens per session |
+| `/memcairn:recall <query>`, `/memcairn:remember <fact>` | 0 (manual only, never shown to the model) |
+| `/mcp__plugin_memcairn_memory__cleanup` (MCP prompt) | 0 until you run it |
+
+It edits no file of yours, `CLAUDE.md` included. The hook needs `curl`, which comes with
+Windows 10+, macOS and most Linux systems.
+
+**Optional extras: `memcairn setup`.** With the CLI installed
+(`uv tool install git+https://github.com/shanislav/memcairn`), `memcairn setup` offers
+the changes the plugin deliberately does not make. It asks about each one, shows a diff,
+and backs up the file (`*.pre-memcairn-<time>`) before writing:
+
+- turn off Claude Code's built-in auto memory (`autoMemoryEnabled: false`). Otherwise
+  `MEMORY.md` is read into every session on top of Memcairn;
+- run `memcairn sync --quiet` at session start, if you sync files (section 5b);
+- move from a manual setup: remove the hand-made `memory` MCP entry and `/context` hook,
+  now that the plugin provides both, and keep the URL and token for the CLI in
+  `~/.memcairn/client.toml`.
+
+`memcairn setup --dry-run` only shows the changes. `memcairn unsetup` reverts exactly what
+setup changed, from its record in `~/.memcairn/setup-state.json`. `memcairn doctor` tells
+you what is still missing.
+
+### Claude Code: by hand
+
+Without the plugin (and for other MCP clients):
 
 ```bash
 claude mcp add --scope user --transport http memory https://memory.example.com/mcp \
@@ -134,9 +177,10 @@ names become `mcp__memory__recall` and so on, which is what the snippet below as
 
 ## 3. Tell the agent how to use it
 
-The tool descriptions are deliberately short, to keep the per-turn token cost low.
-A few lines in your global `CLAUDE.md` (or your agent's equivalent) make the agent use
-memory well:
+The server sends its usage rules (when to recall, what to remember, what never to store)
+as MCP instructions, so Claude Code and other clients that read them need nothing more.
+For a client that ignores MCP instructions, put lines like these into its equivalent of
+`CLAUDE.md`:
 
 ```markdown
 ## Memory (Memcairn, `mcp__memory__*`)
@@ -155,6 +199,8 @@ Never store passwords or tokens (the server refuses them).
 ```
 
 ### Inject memory at session start (recommended)
+
+The plugin does this for you; this is the manual way.
 
 An instruction like the one above relies on the model remembering to call a tool. A
 Claude Code `SessionStart` hook is more reliable: Claude Code runs it at the start of every
@@ -287,7 +333,8 @@ id comes from its first cell, so reordering rows doesn't renumber anything.
 **Choose what to sync** in `~/.memcairn/sync.toml` (nothing is synced without it):
 
 ```toml
-# url and token default to the 'memory' entry in ~/.claude.json
+# url and token default to ~/.memcairn/client.toml (memcairn setup writes it),
+# then to a manual 'memory' entry in ~/.claude.json
 docs_dir = "~/.memcairn/docs"   # optional: mirror every shared document here
 
 [[file]]

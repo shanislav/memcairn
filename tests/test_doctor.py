@@ -46,10 +46,18 @@ def test_glued_hosts_line(tmp_path):
 
 def test_hook_detection(tmp_path):
     home = tmp_path
-    assert levels(d.check_hook(home)) == [d.WARN]
-    write(home / ".claude" / "settings.json", {"hooks": {"SessionStart": [{"hooks": [
-        {"type": "command", "command": "curl -sf https://m.example.com/context"}]}]}})
+    assert levels(d.check_hook(home)) == [d.WARN, d.WARN]  # auto memory on, no hook
+    write(home / ".claude" / "settings.json", {"autoMemoryEnabled": False, "hooks": {
+        "SessionStart": [{"hooks": [
+            {"type": "command", "command": "curl -sf https://m.example.com/context"}]}]}})
     assert levels(d.check_hook(home)) == [d.OK]
+
+
+def test_plugin_counts_as_configured(tmp_path):
+    write(tmp_path / ".claude" / "settings.json",
+          {"autoMemoryEnabled": False, "enabledPlugins": {"memcairn@memcairn": True}})
+    assert levels(d.check_configs(tmp_path, tmp_path)) == [d.OK]
+    assert levels(d.check_hook(tmp_path)) == [d.OK]
 
 
 def test_store_hygiene(tmp_path):

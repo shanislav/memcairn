@@ -89,10 +89,19 @@ def check_configs(home: Path, cwd: Path, name: str = "memory") -> list[Finding]:
     mine = [f for f in found if f[1] == name]
     effective = [f for f in mine if not f[0].startswith("ignored")]
     legacy = [f for f in found if "server-memory" in _describe(f[2])]
-    if not effective:
+    from .clientsetup import plugin_enabled
+
+    plugin = plugin_enabled(home)
+    if plugin:
+        out.append(Finding(OK, "Claude Code plugin memcairn is enabled"))
+        if effective:
+            out.append(Finding(WARN, f'a manual "{name}" MCP server is configured as well, so '
+                               "the tools are there twice", "memcairn setup removes it"))
+    elif not effective:
         out.append(Finding(FAIL, f'no MCP server named "{name}" configured',
-                           "claude mcp add --scope user --transport http memory <url> "
-                           '--header "Authorization: Bearer <token>"'))
+                           "install the plugin (/plugin marketplace add shanislav/memcairn, "
+                           "/plugin install memcairn@memcairn) or: claude mcp add --scope user "
+                           '--transport http memory <url> --header "Authorization: Bearer <token>"'))
     for label, srv, spec in mine:
         kind = "memcairn" if spec.get("url") or "memcairn" in _describe(spec) else "OTHER"
         level = OK if kind == "memcairn" and label.startswith("user") else WARN
@@ -110,15 +119,24 @@ def check_configs(home: Path, cwd: Path, name: str = "memory") -> list[Finding]:
 
 
 def check_hook(home: Path) -> list[Finding]:
+    from .clientsetup import plugin_enabled
+
     path = home / ".claude" / "settings.json"
     try:
-        hooks = json.loads(path.read_text(encoding="utf-8")).get("hooks", {})
+        settings = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        hooks = {}
+        settings = {}
+    out = []
+    if settings.get("autoMemoryEnabled") is not False:
+        out.append(Finding(WARN, "Claude Code auto memory is on: MEMORY.md is read into every "
+                           "session besides Memcairn", "memcairn setup can turn it off"))
+    hooks = settings.get("hooks") or {}
     cmds = [h.get("command", "") for g in hooks.get("SessionStart", []) for h in g.get("hooks", [])]
+    if plugin_enabled(home):
+        return out + [Finding(OK, "session-start overview comes from the plugin")]
     if any("/context" in c for c in cmds):
-        return [Finding(OK, "SessionStart hook injects /context")]
-    return [Finding(WARN, "no SessionStart hook: memory reaches a session only if the model "
+        return out + [Finding(OK, "SessionStart hook injects /context")]
+    return out + [Finding(WARN, "no SessionStart hook: memory reaches a session only if the model "
                     "calls recall", "see docs/setup.md, 'Inject memory at session start'")]
 
 

@@ -145,7 +145,7 @@ def import_server_memory(path: Path, scope: str = typer.Option("global"), db: Pa
     if n:
         typer.echo(f"\n{n} imported memories are long or read like status logs (~{saving} tokens "
                    "to save). An open todo now asks agents to offer a cleanup; run it in a "
-                   "session with the 'cleanup' prompt (/mcp__memory__cleanup in Claude Code).")
+                   "session with the 'cleanup' prompt (/mcp__plugin_memcairn_memory__cleanup with the plugin).")
 
 
 @import_app.command("claude-memory")
@@ -270,6 +270,31 @@ def review(
 
 
 @app.command()
+def setup(
+    yes: bool = typer.Option(False, "--yes", help="Apply every offered change without asking."),
+    dry_run: bool = typer.Option(False, help="Only show what would change."),
+):
+    """Optional client changes the plugin doesn't make: each shown as a diff, backed up, y/n."""
+    from . import clientsetup as cs
+
+    def confirm(change, diff_text):
+        typer.echo(f"\n* {change.title}\n{diff_text}")
+        if dry_run:
+            return False
+        return yes or typer.confirm("apply?", default=True)
+
+    cs.run_setup(Path.home(), confirm, typer.echo)
+
+
+@app.command()
+def unsetup(yes: bool = typer.Option(False, "--yes", help="Revert everything without asking.")):
+    """Revert what `memcairn setup` changed (it keeps a record in ~/.memcairn)."""
+    from . import clientsetup as cs
+
+    cs.run_unsetup(Path.home(), lambda q: yes or typer.confirm(q, default=True), typer.echo)
+
+
+@app.command()
 def doctor(
     db: Path = DbOpt,
     url: str = typer.Option(None, help="Server URL; default: the 'memory' entry in ~/.claude.json."),
@@ -283,15 +308,9 @@ def doctor(
     is_client = url or any(p.is_file() for _, p in d.config_files(home, cwd))
     # e.g. inside the server container: no Claude here, so only the database is checked
     findings = d.check_configs(home, cwd, name) + d.check_hook(home) if is_client else []
-    if not url:
-        try:
-            spec = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
-            spec = spec.get("mcpServers", {}).get(name, {})
-            url = spec.get("url")
-            auth = spec.get("headers", {}).get("Authorization", "")
-            token = token or (auth[7:] if auth.lower().startswith("bearer ") else None)
-        except (OSError, json.JSONDecodeError):
-            pass
+    from .client import auth
+
+    url, token = auth(url, token, name=name)
     if url:
         from urllib.parse import urlparse
 

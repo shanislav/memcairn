@@ -57,7 +57,17 @@ memcairn serve --transport http --host 0.0.0.0 --port 8765 \
     --public-url https://memory.example.com
 ```
 
-Put it behind TLS (nginx/caddy) and keep it on a private network. On each client:
+Put it behind TLS (nginx/caddy) and keep it on a private network. On each client, install
+the Claude Code plugin. It asks for the URL and token and keeps the token in the keychain:
+
+```
+/plugin marketplace add shanislav/memcairn
+/plugin install memcairn@memcairn
+```
+
+It adds the tools and a short memory overview at session start, and changes nothing else.
+`memcairn setup` offers the optional extras (turn off built-in auto memory, file sync),
+each with a diff and a backup; `memcairn unsetup` reverts them. Without the plugin:
 
 ```bash
 claude mcp add --transport http memcairn https://memory.example.com/mcp \

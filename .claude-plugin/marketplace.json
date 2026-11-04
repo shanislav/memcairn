@@ -1,0 +1,14 @@
+{
+  "name": "memcairn",
+  "owner": { "name": "shanislav", "url": "https://github.com/shanislav" },
+  "description": "Memcairn: self-hosted long-term memory for Claude Code, shared by all your instances.",
+  "plugins": [
+    {
+      "name": "memcairn",
+      "source": "./plugin",
+      "description": "Connects Claude Code to your Memcairn server: memory tools, session-start context, /memcairn skills.",
+      "category": "productivity",
+      "tags": ["memory", "mcp", "self-hosted"]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "memcairn",
+  "displayName": "Memcairn memory",
+  "version": "0.1.0",
+  "description": "Long-term memory shared by all your Claude instances, on your own Memcairn server. Adds the memory tools and a short memory overview at session start. Changes nothing else; `memcairn setup` offers the optional extras.",
+  "author": { "name": "shanislav", "url": "https://github.com/shanislav" },
+  "homepage": "https://github.com/shanislav/memcairn",
+  "repository": "https://github.com/shanislav/memcairn",
+  "license": "MIT",
+  "keywords": ["memory", "mcp", "self-hosted", "sqlite"],
+  "userConfig": {
+    "url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "Base URL of your Memcairn server, without /mcp (for example https://memory.example.com).",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Token",
+      "description": "Client token from `memcairn token add <name>` on the server. Stored in the system keychain.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "memory": {
+      "type": "http",
+      "url": "${user_config.url}/mcp",
+      "headers": { "Authorization": "Bearer ${user_config.token}" }
+    }
+  }
+}

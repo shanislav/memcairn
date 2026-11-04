@@ -2,8 +2,8 @@
 
 Config (TOML, default ~/.memcairn/sync.toml), all optional except what you want synced:
 
-    url = "https://memory.example.com"     # default: the 'memory' entry in ~/.claude.json
-    token = "..."                          # default: from the same entry
+    url = "https://memory.example.com"     # default: ~/.memcairn/client.toml or ~/.claude.json
+    token = "..."                          # default: from the same place
     docs_dir = "~/.memcairn/docs"          # mirror every shared document here (optional)
 
     [[file]]
@@ -97,16 +97,9 @@ class Remote:
 
 def load_config(path: Path) -> tuple[str | None, str | None, Path | None, list[Entry]]:
     cfg = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    url, token = cfg.get("url"), cfg.get("token")
-    if not url or not token:
-        try:
-            spec = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
-            spec = spec.get("mcpServers", {}).get(cfg.get("server", "memory"), {})
-            url = url or spec.get("url")
-            auth = spec.get("headers", {}).get("Authorization", "")
-            token = token or (auth[7:] if auth.lower().startswith("bearer ") else None)
-        except (OSError, json.JSONDecodeError):
-            pass
+    from .client import auth
+
+    url, token = auth(cfg.get("url"), cfg.get("token"), name=cfg.get("server", "memory"))
     docs_dir = Path(cfg["docs_dir"]).expanduser() if cfg.get("docs_dir") else None
     entries = [Entry(f["name"], Path(f["path"]).expanduser()) for f in cfg.get("file", [])]
     return url, token, docs_dir, entries
@@ -202,7 +195,7 @@ def sync_entry(remote: Remote, e: Entry, server: dict | None, state: dict) -> st
 def run(config: Path = DEFAULT_CONFIG, state_path: Path = STATE) -> list[str]:
     url, token, docs_dir, entries = load_config(config)
     if not url:
-        return ["no server configured (url) and no 'memory' entry in ~/.claude.json"]
+        return ["no server configured: run 'memcairn setup' or set url/token in sync.toml"]
     remote = Remote(url, token)
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
     server = remote.list()
