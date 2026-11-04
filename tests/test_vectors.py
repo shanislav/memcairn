@@ -86,3 +86,11 @@ def test_unrelated_query_is_low_confidence(store):
     res = store.recall("kubernetes autoscaling", deep=True)
     text = format.recall(res, max_tokens=1500, limit=12, explain=False, deep=True)
     assert "likely not in memory" in text
+
+
+def test_semantic_duplicate_offered_on_write(store):
+    first, _ = store.remember("bateria v UPS vymenena", entity="UPS")
+    _, dups = store.remember("battery replaced", entity="UPS")
+    assert [d["id"] for d in dups] == [first["id"]]
+    _, other_entity = store.remember("battery swapped", entity="Laptop")
+    assert other_entity == []  # only within the same entity

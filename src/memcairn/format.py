@@ -37,6 +37,8 @@ def hit_line(hit: Hit, *, limit: int = SNIPPET, explain: bool = False) -> str:
         parts.append(f"[{hit.status}]")
     if m["pinned"]:
         parts.append("[pinned]")
+    if hit.parts.get("replaces"):
+        parts.append(f"(replaces m{hit.parts['replaces']})")
     line = " · ".join(parts) + " · " + oneline(m["content"], limit)
     if explain:
         detail = " ".join(f"{k}={v}" for k, v in hit.parts.items())

@@ -83,6 +83,9 @@ class RecallResult:
 # Cosine similarity mapped to 0..1 relevance; calibrated on the benchmark for the
 # default multilingual model (unrelated text scores around the floor).
 SIM_FLOOR = 0.40
+# Calibrated on real data with the default model: real duplicates and "same fact, newer
+# value" pairs score 0.85-0.90; below that it's mostly related-but-different facts.
+DUP_SIMILARITY = 0.86
 SIM_CEIL = 0.75
 
 
@@ -145,6 +148,7 @@ class Store:
         self.lock = threading.RLock()
         self.embedder = embedder
         self.defer_vectors = False
+        self._active_days: dict[int, list[str]] | None = None
         self.vindex = None
         self._dirty: set[int] = set()
         if embedder is not None:
@@ -308,6 +312,7 @@ class Store:
     def _index(self, mid: int) -> None:
         row = self._row(mid)
         self._dirty.add(mid)
+        self._active_days = None
         self.conn.execute("DELETE FROM memory_fts WHERE rowid = ?", (mid,))
         if row["deleted_at"]:
             return
@@ -386,7 +391,34 @@ class Store:
             self._index(mid)
             self._snapshot(mid, "create", client)
             dups = self.near_duplicates(mid) if check_duplicates else []
-            return self._row(mid), dups
+        # after COMMIT: the new memory's vector exists now (embedded on commit)
+        if check_duplicates:
+            dups += [r for r in self.similar_memories(mid) if r["id"] not in {d["id"] for d in dups}]
+        return self._row(mid), dups[:3]
+
+    def similar_memories(self, mid: int, threshold: float = DUP_SIMILARITY,
+                         limit: int = 3) -> list[sqlite3.Row]:
+        """Same-entity memories whose meaning is close: candidates to update or supersede.
+
+        Similarity can't tell a paraphrase from a different claim about the same subject
+        (both score ~0.9), so these are only ever offered, never merged.
+        """
+        if self.vindex is None or mid not in self.vindex.pos:
+            return []
+        row = self._row(mid)
+        with self.vindex.lock:
+            vec = self.vindex.matrix[self.vindex.pos[mid]].copy()
+        out = []
+        for other, sim in self.vindex.search(vec, 12):
+            if other == mid or sim < threshold:
+                continue
+            cand = self._row(other)
+            if (cand["entity_id"] == row["entity_id"] and not cand["deleted_at"]
+                    and not cand["superseded_by"]):
+                out.append(cand)
+            if len(out) >= limit:
+                break
+        return out
 
     def near_duplicates(self, mid: int, limit: int = 3, threshold: float = 0.5) -> list[sqlite3.Row]:
         row = self._row(mid)
@@ -593,13 +625,13 @@ class Store:
         chain = self.scope_chain(scope)
         where = [f"m.scope_id IN ({','.join('?' * len(chain))})", "m.deleted_at IS NULL"]
         args: list = list(chain)
-        if not (deep or include_old):
+        current_only = not (deep or include_old)
+        if current_only:
+            # Superseded facts stay searchable: when an old wording matches the query best,
+            # recall answers with its successor (see _promote_successors).
             t = now()
-            where += [
-                "m.superseded_by IS NULL",
-                "(m.expires_at IS NULL OR m.expires_at > ?)",
-                "(m.valid_to IS NULL OR m.valid_to > ?)",
-            ]
+            where += ["(m.superseded_by IS NOT NULL OR ((m.expires_at IS NULL OR m.expires_at > ?)"
+                      " AND (m.valid_to IS NULL OR m.valid_to > ?)))"]
             args += [t, t]
         if type:
             where.append("m.type = ?")
@@ -616,6 +648,8 @@ class Store:
             sql += " WHERE " + " AND ".join(where)
             sql += f" ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT {int(limit)}"
             hits = [self._score(r, qterms) for r in self.conn.execute(sql, args).fetchall()]
+            if current_only:
+                hits = [h for h in hits if not h.memory["superseded_by"]]
             hits.sort(key=lambda h: h.score, reverse=True)
             return RecallResult(hits=hits, coverage=1.0)
 
@@ -652,6 +686,8 @@ class Store:
                     rows[r["id"]] = r
 
         hits = [self._score(r, qterms) for r in rows.values()]
+        for h in hits:  # age by activity on the topic, not by the calendar (as in context)
+            h.parts["recency"] = round(math.exp(-0.05 * self._active_age(h.memory)), 2)
         worst = max((-h.memory["rank"] for h in hits), default=0.0)
         def combine(lexical: float, semantic: float | None) -> float:
             if semantic is None:
@@ -674,9 +710,31 @@ class Store:
             h.score = round(
                 ranking * 0.75 + 0.15 * h.parts["importance"] + 0.1 * h.parts["recency"]
                 + (0.1 if h.memory["pinned"] else 0.0) - (0.2 if h.status else 0.0), 3)
+        if current_only:
+            hits = self._promote_successors(hits)
         hits.sort(key=lambda h: h.score, reverse=True)
         confidence = max((h.parts["rel"] for h in hits), default=0.0)
         return RecallResult(hits=hits[:limit], coverage=confidence)
+
+    def _promote_successors(self, hits: list[Hit]) -> list[Hit]:
+        """Replace superseded hits by the current version of the fact (one hit per fact)."""
+        best: dict[int, Hit] = {}
+        for h in hits:
+            m, replaced = h.memory, None
+            seen = set()
+            while m["superseded_by"] and m["id"] not in seen:
+                seen.add(m["id"])
+                replaced = replaced or h.memory["id"]
+                m = self._row(m["superseded_by"])
+            if m["deleted_at"] or (m["expires_at"] and m["expires_at"] <= now()):
+                continue
+            if replaced:
+                h = Hit(memory=m, entity=m["entity_name"], score=h.score,
+                        parts={**h.parts, "replaces": replaced})
+            keep = best.get(m["id"])
+            if keep is None or h.score > keep.score:
+                best[m["id"]] = h
+        return list(best.values())
 
     def _score(self, row: sqlite3.Row, qterms: list[str]) -> Hit:
         text_terms = set(terms(
@@ -722,9 +780,7 @@ class Store:
         hits = []
         for r in rows:
             h = self._score(r, [])
-            days = active_days.get(r["entity_id"], [])
-            since = bisect.bisect_right(days, (r["updated_at"] or r["recorded_at"])[:10])
-            elapsed = len(days) - since
+            elapsed = self._active_age(r)
             usage = 1 - math.exp(-(r["access_count"] + 2 * r["useful_count"]) / 5)
             prior = TYPE_PRIOR.get(r["type"], 0.5)
             h.parts.update(prior=prior, usage=round(usage, 2), active_age=elapsed)
@@ -753,7 +809,9 @@ class Store:
         return picked
 
     def _entity_active_days(self) -> dict[int, list[str]]:
-        """Sorted distinct days on which each entity received a write."""
+        """Sorted distinct days on which each entity received a write (cached until a write)."""
+        if self._active_days is not None:
+            return self._active_days
         days: dict[int, set[str]] = {}
         for eid, day in self.conn.execute(
                 """SELECT entity_id, substr(recorded_at, 1, 10) FROM memory
@@ -761,7 +819,13 @@ class Store:
                    UNION SELECT entity_id, substr(updated_at, 1, 10) FROM memory
                    WHERE entity_id IS NOT NULL"""):
             days.setdefault(eid, set()).add(day)
-        return {eid: sorted(d) for eid, d in days.items()}
+        self._active_days = {eid: sorted(d) for eid, d in days.items()}
+        return self._active_days
+
+    def _active_age(self, row: sqlite3.Row) -> int:
+        """Days with newer writes on the same entity since this memory was last changed."""
+        days = self._entity_active_days().get(row["entity_id"], [])
+        return len(days) - bisect.bisect_right(days, (row["updated_at"] or row["recorded_at"])[:10])
 
     def entities(self, scope: str | None = None) -> list[sqlite3.Row]:
         chain = self.scope_chain(scope)

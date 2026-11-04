@@ -80,7 +80,12 @@ claude mcp add --transport http memcairn https://memory.example.com/mcp \
 (`create_entities`, `search_nodes`, `open_nodes`, …) for existing prompts; it roughly
 doubles the tool-list cost.
 
-Writes that look like credentials (API keys, tokens, `password=…`) are refused.
+Writes that look like credentials (API keys, tokens, `password=…`) are refused. New facts
+that look like an existing one (same words, or same meaning on the same topic) come back as
+candidates to update instead.
+
+`memcairn doctor` checks a client's setup and the server's database. It is a CLI
+command, not an MCP tool, so it costs agents nothing.
 
 ## Development
 

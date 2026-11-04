@@ -166,5 +166,38 @@ def stats(db: Path = DbOpt):
         typer.echo(f"{k:<12} {v}")
 
 
+@app.command()
+def doctor(
+    db: Path = DbOpt,
+    url: str = typer.Option(None, help="Server URL; default: the 'memory' entry in ~/.claude.json."),
+    token: str = typer.Option(None, envvar="MEMCAIRN_TOKEN", help="Token; default: from config."),
+    name: str = typer.Option("memory", help="MCP server name Memcairn is registered under."),
+):
+    """Check this machine's setup (configs, hosts, token, hook) and the database, if present."""
+    from . import doctor as d
+
+    home, cwd = Path.home(), Path.cwd()
+    findings = d.check_configs(home, cwd, name) + d.check_hook(home)
+    if not url:
+        try:
+            spec = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
+            spec = spec.get("mcpServers", {}).get(name, {})
+            url = spec.get("url")
+            auth = spec.get("headers", {}).get("Authorization", "")
+            token = token or (auth[7:] if auth.lower().startswith("bearer ") else None)
+        except (OSError, json.JSONDecodeError):
+            pass
+    if url:
+        from urllib.parse import urlparse
+
+        findings += d.check_hosts(urlparse(url).hostname or "")
+        findings += d.check_server(url, token)
+    if db.is_file():
+        findings += d.check_db(db)
+    text, code = d.report(findings)
+    typer.echo(text)
+    raise typer.Exit(code)
+
+
 if __name__ == "__main__":
     app()

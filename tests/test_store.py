@@ -140,3 +140,14 @@ def test_import_server_memory(store, tmp_path):
     assert stats == {"entities": 2, "facts": 2, "relations": 1, "skipped_secrets": 0,
                      "embedded": 0}
     assert store.find_entity("obed")["type"] == "project"
+
+
+def test_superseded_match_returns_successor(store):
+    old, _ = store.remember("Plex runs in Docker container plexinc", entity="Plex")
+    new = store.update(old["id"], content="Plex runs natively via systemd now", supersede=True)
+    res = store.recall("docker container plexinc")  # words only the old version has
+    assert [h.memory["id"] for h in res.hits] == [new["id"]]
+    assert res.hits[0].parts["replaces"] == old["id"]
+    assert f"(replaces m{old['id']})" in format.hit_line(res.hits[0])
+    deep = store.recall("docker container plexinc", deep=True)  # history stays visible
+    assert old["id"] in [h.memory["id"] for h in deep.hits]

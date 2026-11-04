@@ -295,6 +295,20 @@ tool-list cost, so updating the prompts (section 3) is the better fix.
 
 ## 8. Troubleshooting
 
+Start with `memcairn doctor` (`uvx --from git+https://github.com/shanislav/memcairn memcairn doctor`
+on a client without Memcairn installed). It reads the URL and token from the `memory`
+entry in `~/.claude.json` and checks:
+
+- every MCP config that can define a server with that name, including the ignored
+  `settings.json` and desktop-app configs, and which of them wins;
+- the hosts file (entries glued onto the previous line), DNS, reachability and the token;
+- the SessionStart hook;
+- on the server (`docker compose exec memcairn memcairn doctor`): database integrity,
+  vector coverage, facts over 500 characters, entities with over 30 facts, todos open for
+  over 30 days, stored text that reads like instructions to a model, exact duplicates.
+
+It only reports and never changes anything. The exit code is 1 when something is broken.
+
 | Symptom | Cause |
 |---|---|
 | Agent has `search_nodes`/`read_graph` instead of `recall` | Another server named `memory` (old `server-memory` in a project `.mcp.json`) wins the name clash; see section 2. |
