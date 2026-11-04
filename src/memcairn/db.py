@@ -120,6 +120,11 @@ MIGRATIONS: list[str] = [
         vec       BLOB NOT NULL
     );
     """,
+    # 3 — explicit state for todos, so "finished" and "forgotten" are not the same thing
+    """
+    ALTER TABLE memory ADD COLUMN status TEXT;
+    UPDATE memory SET status = 'open' WHERE type = 'todo';
+    """,
 ]
 
 

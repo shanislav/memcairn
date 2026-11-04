@@ -154,12 +154,13 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         importance: float | None = None,
         pinned: bool | None = None,
         expires_at: str | None = None,
+        status: Literal["open", "done", "dropped"] | None = None,
     ) -> str:
-        """Edit a memory (versioned). supersede=true when the fact changed in reality: old one stays as history."""
+        """Edit a memory (versioned). supersede=true when the fact changed in reality: old one stays as history. Close todos with status=done|dropped."""
         row = store.update(
             id, content=content, supersede=supersede, expected_version=expected_version,
             type=type, entity=entity, tags=tags, importance=importance, pinned=pinned,
-            expires_at=expires_at, client=client())
+            expires_at=expires_at, status=status, client=client())
         return format.written(row, [], verb="superseded, new" if supersede else "ok")
 
     @mcp.tool(structured_output=False, annotations=DESTRUCTIVE)
@@ -182,6 +183,31 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         from . import compat as compat_mod
 
         compat_mod.register(mcp, store, client=client, default_scope=default_scope, safe=safe)
+
+    @mcp.custom_route("/context", methods=["GET"])
+    async def context_http(request):
+        """Plain-text session-start context for hooks: `curl -H 'Authorization: Bearer …'`."""
+        from starlette.responses import PlainTextResponse
+
+        name = None
+        if auth_url:
+            header = request.headers.get("authorization", "")
+            token = header[7:] if header.lower().startswith("bearer ") else ""
+            tok = await StoreTokenVerifier(store).verify_token(token) if token else None
+            if tok is None:
+                return PlainTextResponse("unauthorized", status_code=401)
+            name = tok.client_id
+        scope = request.query_params.get("scope")
+        if not scope and name:
+            row = store.conn.execute(
+                "SELECT default_scope FROM client WHERE name = ?", (name,)).fetchone()
+            scope = row["default_scope"] if row else None
+        try:
+            budget = min(int(request.query_params.get("max_tokens", 500)), 2000)
+        except ValueError:
+            budget = 500
+        text = format.context(store.context(scope or "global"), max_tokens=budget)
+        return PlainTextResponse(format.SESSION_INTRO + "\n" + text)
 
     for tool in mcp._tool_manager.list_tools():
         tool.parameters = compact_schema(tool.parameters)

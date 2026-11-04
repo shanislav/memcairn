@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import math
@@ -18,6 +19,11 @@ from .db import now
 log = logging.getLogger(__name__)
 
 MEMORY_TYPES = ("user", "feedback", "project", "reference", "fact", "todo", "decision", "howto")
+TODO_STATES = ("open", "done", "dropped")
+
+# How much each memory type deserves a place in the session-start context.
+TYPE_PRIOR = {"feedback": 1.0, "user": 1.0, "decision": 0.85, "project": 0.8, "todo": 0.75,
+              "howto": 0.7, "reference": 0.6, "fact": 0.5}
 LONG_CONTENT = 500
 
 # Entity type aliases folded together on write (lowercased keys).
@@ -56,6 +62,8 @@ class Hit:
         m = self.memory
         if m["deleted_at"]:
             return "forgotten"
+        if m["status"] in ("done", "dropped"):
+            return m["status"]
         if m["superseded_by"]:
             return "old"
         t = now()
@@ -117,6 +125,11 @@ def normalize_type(t: str | None) -> str:
         return "thing"
     key = t.strip().lower()
     return TYPE_ALIASES.get(key, key)
+
+
+def _desc(day: str) -> str:
+    """Sort key that orders ISO dates newest first (empty = unknown = last)."""
+    return "".join(chr(0x7F - ord(c)) for c in day) if day else chr(0x7F)
 
 
 def parse_id(ref: str | int) -> int:
@@ -350,7 +363,7 @@ class Store:
             cur = self.conn.execute(
                 """INSERT INTO memory (scope_id, entity_id, type, content, tags, importance,
                    pinned, valid_from, recorded_at, updated_at, expires_at, episode_id, client,
-                   idempotency_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   idempotency_key, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     sid,
                     eid,
@@ -361,11 +374,12 @@ class Store:
                     int(bool(pinned)),
                     valid_from,
                     recorded_at or t,
-                    t,
+                    recorded_at or t,
                     expires_at,
                     episode_id,
                     client,
                     idempotency_key,
+                    "open" if (type or "").lower() == "todo" else None,
                 ),
             )
             mid = cur.lastrowid
@@ -407,9 +421,12 @@ class Store:
         importance: float | None = None,
         pinned: bool | None = None,
         expires_at: str | None = None,
+        status: str | None = None,
         client: str | None = None,
     ) -> sqlite3.Row:
         mid = parse_id(ref)
+        if status is not None and status not in TODO_STATES:
+            raise ValueError(f"status must be one of {', '.join(TODO_STATES)}")
         if content is not None:
             content = content.strip()
             if not content:
@@ -435,16 +452,20 @@ class Store:
                 "pinned": old["pinned"] if pinned is None else int(pinned),
                 "expires_at": old["expires_at"] if expires_at is None else (expires_at or None),
             }
+            new_type = fields["type"]
+            if status is not None and new_type != "todo":
+                raise ValueError("status applies to todos only")
+            fields["status"] = (status or old["status"] or "open") if new_type == "todo" else None
             t = now()
             if supersede:
                 cur = self.conn.execute(
                     """INSERT INTO memory (scope_id, entity_id, type, content, tags, importance,
-                       pinned, valid_from, recorded_at, updated_at, expires_at, client)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       pinned, valid_from, recorded_at, updated_at, expires_at, client, status)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         old["scope_id"], fields["entity_id"], fields["type"], fields["content"],
                         fields["tags"], fields["importance"], fields["pinned"], t, t, t,
-                        fields["expires_at"], client,
+                        fields["expires_at"], client, fields["status"],
                     ),
                 )
                 new_id = cur.lastrowid
@@ -679,20 +700,68 @@ class Store:
         score = 0.75 * row["importance"] + 0.25 * recency + (0.5 if row["pinned"] else 0)
         return Hit(memory=row, entity=row["entity_name"], score=round(score, 3), parts=parts)
 
-    def context(self, scope: str | None = None, limit: int = 40) -> list[Hit]:
+    def context(self, scope: str | None = None, limit: int = 40,
+                per_entity: int = 2) -> list[Hit]:
+        """What an agent should see at session start, best first.
+
+        Pinned facts first, then open todos, then the rest ranked by type, importance,
+        use and *activity-based* age: a fact ages only when its entity receives newer
+        writes, so a project left alone for a year doesn't fade (idea from engram-mcp).
+        At most `per_entity` unpinned facts per entity, so one busy topic can't fill it.
+        """
         chain = self.scope_chain(scope)
-        t = now()
         rows = self.conn.execute(
             f"""SELECT m.*, e.name AS entity_name, s.key AS scope_key FROM memory m
                 LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id
                 WHERE m.scope_id IN ({','.join('?' * len(chain))}) AND m.deleted_at IS NULL
                 AND m.superseded_by IS NULL AND (m.expires_at IS NULL OR m.expires_at > ?)
-                ORDER BY m.pinned DESC, m.importance DESC, m.updated_at DESC LIMIT ?""",
-            (*chain, t, limit),
+                AND (m.status IS NULL OR m.status = 'open')""",
+            (*chain, now()),
         ).fetchall()
-        hits = [self._score(r, []) for r in rows]
-        hits.sort(key=lambda h: h.score, reverse=True)
-        return hits
+        active_days = self._entity_active_days()
+        hits = []
+        for r in rows:
+            h = self._score(r, [])
+            days = active_days.get(r["entity_id"], [])
+            since = bisect.bisect_right(days, (r["updated_at"] or r["recorded_at"])[:10])
+            elapsed = len(days) - since
+            usage = 1 - math.exp(-(r["access_count"] + 2 * r["useful_count"]) / 5)
+            prior = TYPE_PRIOR.get(r["type"], 0.5)
+            h.parts.update(prior=prior, usage=round(usage, 2), active_age=elapsed)
+            h.score = round(0.35 * prior + 0.30 * r["importance"] + 0.15 * usage
+                            + 0.20 * math.exp(-0.05 * elapsed)
+                            - (0.3 if r["wrong_count"] > r["useful_count"] else 0.0), 3)
+            hits.append(h)
+
+        def rank(h: Hit):
+            m = h.memory
+            # ties (common right after an import) go to the most recently active entity
+            last_active = (active_days.get(m["entity_id"]) or [""])[-1]
+            return (not m["pinned"], m["type"] != "todo", -h.score, _desc(last_active))
+
+        hits.sort(key=rank)
+        picked, seen = [], {}
+        for h in hits:
+            ent = h.memory["entity_id"]
+            if not h.memory["pinned"] and ent is not None:
+                if seen.get(ent, 0) >= per_entity:
+                    continue
+                seen[ent] = seen.get(ent, 0) + 1
+            picked.append(h)
+            if len(picked) >= limit:
+                break
+        return picked
+
+    def _entity_active_days(self) -> dict[int, list[str]]:
+        """Sorted distinct days on which each entity received a write."""
+        days: dict[int, set[str]] = {}
+        for eid, day in self.conn.execute(
+                """SELECT entity_id, substr(recorded_at, 1, 10) FROM memory
+                   WHERE entity_id IS NOT NULL
+                   UNION SELECT entity_id, substr(updated_at, 1, 10) FROM memory
+                   WHERE entity_id IS NOT NULL"""):
+            days.setdefault(eid, set()).add(day)
+        return {eid: sorted(d) for eid, d in days.items()}
 
     def entities(self, scope: str | None = None) -> list[sqlite3.Row]:
         chain = self.scope_chain(scope)

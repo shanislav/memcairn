@@ -68,11 +68,11 @@ claude mcp add --transport http memcairn https://memory.example.com/mcp \
 
 | Tool | Purpose |
 |---|---|
-| `context` | pinned and most important facts, for session start (≤ 500 tokens) |
+| `context` | pinned facts, open todos and the most important facts, for session start (≤ 500 tokens; also as plain text at `GET /context` for a SessionStart hook) |
 | `recall` | ranked search; `mode=deep` when nothing is found; `explain=true` shows scores |
 | `get` | full text of selected ids, optionally with version history |
 | `remember` | store one short atomic fact; returns possible duplicates |
-| `update` | edit (versioned); `supersede=true` when the fact changed in reality |
+| `update` | edit (versioned); `supersede=true` when the fact changed in reality; `status=done` or `dropped` closes a todo |
 | `forget` | soft delete, `undo=true` restores |
 | `link` | relation between entities |
 

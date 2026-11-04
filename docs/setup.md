@@ -153,9 +153,52 @@ changed in reality, `update` with `supersede=true` (the old one stays in history
 Never store passwords or tokens (the server refuses them).
 ```
 
-For pinned facts that should always be in context, call `context` at session start
-(it costs at most about 500 tokens). Mark such facts with `remember(..., pinned=true)` or
-`update(id, pinned=true)`.
+### Inject memory at session start (recommended)
+
+An instruction like the one above relies on the model remembering to call a tool. A
+Claude Code `SessionStart` hook is more reliable: Claude Code runs it at the start of every
+session and adds its output to the context. Memcairn serves the session-start context as
+plain text at `GET /context`, so the hook only needs `curl`. Add this to
+`~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -m 3 -H \"Authorization: Bearer <token>\" https://memory.example.com/context",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- It costs at most about 500 tokens per session; change it with `?max_tokens=…`.
+- It uses the token's default scope; pick another with `?scope=project:x`.
+- If the server is unreachable, `curl -f` prints nothing and the session starts normally.
+
+What goes in, best first:
+1. pinned facts (`remember(..., pinned=true)` or `update(id, pinned=true)`);
+2. open todos;
+3. everything else, ranked by type (feedback and user preferences first, plain facts
+   last), importance and how often a fact was actually used.
+
+A fact ages only when its topic gets newer writes. A project you haven't touched for a
+year doesn't fade from memory. At most two facts per entity make it in, so one busy topic
+can't crowd out the rest.
+
+### Todos
+
+`remember(type="todo")` creates an open todo. Close it with `update(id, status="done")`,
+or with `status="dropped"` when it's no longer needed. Closed todos leave the session
+context but stay searchable, marked `[done]` / `[dropped]`. "Finished" and "forgotten"
+are not the same thing.
 
 ## 4. Scopes: shared vs separate memory
 
