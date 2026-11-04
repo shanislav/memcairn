@@ -119,3 +119,31 @@ def fix_exact_duplicates(store: Store, client: str = "review") -> int:
             store.forget(mid, reason=f"exact duplicate of m{min(item.ids)}", client=client)
             n += 1
     return n
+
+
+CLEANUP_TODO = "Memcairn cleanup"
+
+
+def suggest_cleanup(store: Store, *, scope: str = "global", minimum: int = 5) -> tuple[int, int]:
+    """After an import: if enough items need cleanup, leave one open todo saying so.
+
+    The todo shows up in the session-start context, so the next agent session offers the
+    cleanup on its own. Returns (items, tokens to save); (0, 0) when not worth it.
+    """
+    items = review(store, ["long", "status"])
+    if len(items) < minimum:
+        return 0, 0
+    saving = sum(i.saving for i in items)
+    open_todo = store.conn.execute(
+        """SELECT m.id FROM memory m JOIN entity e ON e.id = m.entity_id
+           WHERE e.name = ? AND m.type = 'todo' AND m.status = 'open'
+           AND m.deleted_at IS NULL AND m.superseded_by IS NULL""", (CLEANUP_TODO,)).fetchone()
+    text = (f"After the import, {len(items)} memories are long or read like status logs "
+            f"(~{saving} tokens). Offer the user a cleanup: the MCP prompt 'cleanup' lists them "
+            "and the rules (a short conclusion plus separate facts; originals stay in history).")
+    if open_todo:
+        store.update(open_todo["id"], content=text, client="import")
+    else:
+        store.remember(text, type="todo", entity=CLEANUP_TODO, importance=0.9, scope=scope,
+                       client="import", check_duplicates=False)
+    return len(items), saving

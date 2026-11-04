@@ -34,6 +34,17 @@ def chronicle(store: Store, name: str, *, current_only: bool = False) -> str:
     return "\n".join(out)
 
 
+def _first_wording(store: Store, row: sqlite3.Row) -> str | None:
+    """The original text of a memory rewritten in place (e.g. by cleanup), if different."""
+    snap = store.conn.execute(
+        "SELECT snapshot FROM memory_history WHERE memory_id = ? ORDER BY id LIMIT 1",
+        (row["id"],)).fetchone()
+    if not snap:
+        return None
+    text = json.loads(snap["snapshot"])["content"]
+    return text if text != row["content"] else None
+
+
 def _one(store: Store, ent: sqlite3.Row, current_only: bool) -> list[str]:
     rows = store.conn.execute(
         """SELECT * FROM memory WHERE entity_id = ? AND deleted_at IS NULL
@@ -76,5 +87,9 @@ def _one(store: Store, ent: sqlite3.Row, current_only: bool) -> list[str]:
             out += [f"  > {line}" for line in text.splitlines()]
         else:
             out.append(f"- **m{r['id']}** *{r['type']}*{mark} — {text}")
+            first = _first_wording(store, r) if r["version"] > 1 else None
+            if first and not current_only:
+                out.append("  - earlier wording:")
+                out += [f"    > {line}" for line in first.splitlines()]
     out.append("")
     return out

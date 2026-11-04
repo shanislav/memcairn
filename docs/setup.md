@@ -295,6 +295,21 @@ docker compose exec memcairn memcairn import server-memory /tmp/memory.json
 - Entities, observations and relations are imported.
 - Entity type spellings are normalized (`projekt` → `project`, `servers` → `server`, ...).
 - Observations that look like secrets are skipped and counted.
+- Dates written in the text ("2026-10-01: …") become the facts' dates.
+
+**One-time cleanup.** Memories written for the old server are often long logs that pack
+many things into one entry. They cost tokens and make search less precise. When the
+import finds enough of them, it leaves an open todo, which shows up at the next session
+start, so the agent offers to clean up. Run the `cleanup` prompt (`/mcp__memory__cleanup`
+in Claude Code, optionally with a batch size) one batch at a time:
+
+- each long memory is rewritten in place as a conclusion of up to 400 characters;
+- its reusable details (IPs, paths, commands, causes, decisions, open todos) become
+  separate facts;
+- the original text stays in version history.
+
+`memcairn review` and `memcairn chronicle` let you check the result. New memories stay
+short on their own (see section 3), so this is a one-time job.
 
 Then switch the `memory` entry in your client config to the HTTP server (section 2) and
 **restart every running agent instance**. Until they restart, they keep writing to the

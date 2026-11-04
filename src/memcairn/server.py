@@ -28,6 +28,27 @@ INSTRUCTIONS = (
 
 HIT_LINE = re.compile(r"^m\d+ ", re.M)
 
+# Sent only when the user runs the cleanup prompt; never part of the per-turn tool cost.
+CLEANUP_RULES = """Clean up these {n} memories (of {total} that need it), one at a time:
+
+1. get(ids=[...]) to read the full text.
+2. Rewrite it in place with update(id, content=...) as a conclusion of at most 400
+   characters: what happened or what holds, why (cause), how it ended. Updating in
+   place keeps its id and date; the old text stays in version history.
+3. Extract every reusable detail as its own short fact with remember(entity=<same
+   entity>, type=...): IP addresses, paths, commands, causes, decisions, pitfalls
+   (howto/fact/decision), and open items (todo). When unsure, keep it as a fact:
+   more small facts are better than lost information.
+4. For a status log (commits, versions, "deployed X"), keep the lasting fact (what,
+   where, why, how to check), not the current state.
+5. Drop only narration and finished step-by-step progress.
+
+At the end, tell the user how many memories you cleaned and roughly how much shorter
+they got. When nothing is left, close the "Memcairn cleanup" todo with
+update(id, status="done").
+
+"""
+
 
 def _summary(tool: str, kw: dict) -> str | None:
     """What to remember about a call for usage stats: the query, or which memory."""
@@ -211,6 +232,21 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         from . import compat as compat_mod
 
         compat_mod.register(mcp, store, client=client, default_scope=default_scope, safe=safe)
+
+    @mcp.prompt(name="cleanup", description="Clean up long or status-log memories, a batch "
+                "at a time (originals stay in history).")
+    def cleanup_prompt(count: str = "10") -> str:
+        from . import review as rv
+
+        try:
+            n = max(1, min(int(count), 30))
+        except ValueError:
+            n = 10
+        items = rv.review(store, ["long", "status"])
+        if not items:
+            return "Nothing to clean up: no long or status-log memories."
+        lines = [i.line() for i in items[:n]]
+        return CLEANUP_RULES.format(n=len(lines), total=len(items)) + "\n".join(lines)
 
     @mcp.custom_route("/context", methods=["GET"])
     async def context_http(request):

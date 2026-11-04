@@ -28,3 +28,43 @@ def test_get_history_shows_what_a_fact_replaced():
     new = store.update(old["id"], content="short conclusion", supersede=True)
     text = format.predecessors(store.predecessors(new["id"]))
     assert f"replaced m{old['id']}" in text
+
+
+def test_chronicle_shows_wording_before_an_in_place_rewrite():
+    store = Store(connect(":memory:"))
+    row, _ = store.remember("long original incident log with every detail", entity="NAS")
+    store.update(row["id"], content="short conclusion")
+    md = chronicle(store, "NAS")
+    assert "short conclusion" in md and "earlier wording" in md and "every detail" in md
+
+
+def test_cleanup_suggestion_after_import(tmp_path):
+    import json
+
+    from memcairn import review as rv
+    from memcairn.importers import import_server_memory
+
+    store = Store(connect(":memory:"))
+    p = tmp_path / "memory.json"
+    p.write_text("\n".join(json.dumps({"type": "entity", "name": f"E{i}", "entityType": "x",
+                                       "observations": ["y" * 700]}) for i in range(6)),
+                 encoding="utf-8")
+    import_server_memory(store, p)
+    n, saving = rv.suggest_cleanup(store)
+    assert n == 6 and saving > 0
+    todos = [h for h in store.context() if h.memory["type"] == "todo"]
+    assert todos and "cleanup" in todos[0].memory["content"]
+    rv.suggest_cleanup(store)  # running again updates the same todo
+    assert sum(h.memory["type"] == "todo" for h in store.context()) == 1
+
+
+def test_cleanup_prompt_lists_items():
+    import anyio
+
+    from memcairn.server import build
+    store = Store(connect(":memory:"))
+    store.remember("z" * 800, entity="Big")
+    srv = build(store, stdio_client="t")
+    res = anyio.run(lambda: srv.get_prompt("cleanup", {"count": "5"}))
+    text = "".join(getattr(m.content, "text", "") for m in res.messages)
+    assert "at most 400" in text and "m1" in text

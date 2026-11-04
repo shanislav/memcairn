@@ -132,8 +132,17 @@ def token_revoke(name: str, db: Path = DbOpt):
 @import_app.command("server-memory")
 def import_server_memory(path: Path, scope: str = typer.Option("global"), db: Path = DbOpt):
     """Import @modelcontextprotocol/server-memory JSON/JSONL (memory.json)."""
-    stats = importers.import_server_memory(open_store(db), path, scope=scope)
+    from . import review as rv
+
+    store = open_store(db)
+    stats = importers.import_server_memory(store, path, scope=scope)
     typer.echo(json.dumps(stats))
+    # Imported memories are usually long logs; offer the one-time cleanup right away.
+    n, saving = rv.suggest_cleanup(store, scope=scope)
+    if n:
+        typer.echo(f"\n{n} imported memories are long or read like status logs (~{saving} tokens "
+                   "to save). An open todo now asks agents to offer a cleanup; run it in a "
+                   "session with the 'cleanup' prompt (/mcp__memory__cleanup in Claude Code).")
 
 
 @app.command()
