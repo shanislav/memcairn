@@ -100,6 +100,23 @@ def test_secret_rejected(store):
     store.remember("max token: 10000 per request")
 
 
+@pytest.mark.parametrize("text", [
+    "Docker1 BMC login ADMIN:Qw3rty99",
+    "Storage1 ILO .10 / Zx9Yw8Vu",
+    "| IP | Name | ILO |\n|---|---|---|\n| 10.0.0.5 | db1 | .10 / Zx9Yw8Vu |",
+    "| IP | Name | ILO |\n|---|---|---|\n| 10.0.0.5 | db1 | .10 / ADMIN:Zx9Yw8Vu |",
+])
+def test_login_and_bmc_passwords_rejected(store, text):
+    with pytest.raises(SecretError):
+        store.remember(text)
+
+
+def test_inventory_without_passwords_passes(store):
+    store.remember("| IP | Name | OS | HW | ILO |\n|---|---|---|---|---|\n"
+                   "| 10.0.0.5 | Charon2C7 | AlmaLinux 10.0 | DL360 Gen9 | .10 |")
+    store.remember("SSH user: root; HP default user je `Administrator`, ILO cez .20.x / https")
+
+
 def test_scope_inheritance(store):
     store.remember("global fact about servers")
     store.remember("project fact about servers", scope="project:obed")
