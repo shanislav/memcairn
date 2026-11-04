@@ -151,3 +151,14 @@ def test_superseded_match_returns_successor(store):
     assert f"(replaces m{old['id']})" in format.hit_line(res.hits[0])
     deep = store.recall("docker container plexinc", deep=True)  # history stays visible
     assert old["id"] in [h.memory["id"] for h in deep.hits]
+
+
+def test_status_report_hint(store):
+    row, _ = store.remember("Memcairn deployed c34baa5 on the server: doctor, successor "
+                            "promotion, semantic duplicates, activity-based recency; 41 tests "
+                            "pass, tool list 949 tokens, benchmark unchanged at 98 percent hit@5")
+    assert "status report" in format.written(row, [])
+    plain, _ = store.remember("Memcairn deploys with git pull && docker compose build && up -d "
+                              "in /root/dockers/memcairn; back up first with memcairn backup, "
+                              "never cp the database because of the WAL file next to it")
+    assert "status report" not in format.written(plain, [])

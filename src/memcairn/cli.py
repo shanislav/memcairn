@@ -160,10 +160,28 @@ def backup(path: Path, db: Path = DbOpt):
 
 
 @app.command()
-def stats(db: Path = DbOpt):
-    """Counts of memories, entities, relations."""
-    for k, v in open_store(db, vectors=False).stats().items():
+def stats(db: Path = DbOpt, days: int = typer.Option(7, help="Usage window in days."),
+          queries: bool = typer.Option(False, help="Also list recent recall queries.")):
+    """Counts, and what agents used: calls, tokens per call, empty results."""
+    store = open_store(db, vectors=False)
+    for k, v in store.stats().items():
         typer.echo(f"{k:<12} {v}")
+    rows = store.usage(days)
+    if not rows:
+        typer.echo(f"\nno tool calls in the last {days} days")
+        return
+    typer.echo(f"\nlast {days} days   calls  avg tok  max tok  avg hits  empty  avg ms  errors")
+    for r in rows:
+        typer.echo(f"{r['tool']:<16} {r['calls']:>6} {r['avg_tokens']:>8} {r['max_tokens']:>8} "
+                   f"{r['avg_hits'] if r['avg_hits'] is not None else '-':>9} {r['empty']:>6} "
+                   f"{r['avg_ms']:>7} {r['errors']:>7}")
+    if queries:
+        typer.echo("\nrecent recall queries (hits, tokens):")
+        for r in store.conn.execute(
+                """SELECT ts, client, query, hits, tokens FROM call_log WHERE tool = 'recall'
+                   ORDER BY id DESC LIMIT 30"""):
+            typer.echo(f"{r['ts'][:16]} {r['client'] or '-':<14} {r['hits']:>2} "
+                       f"{r['tokens']:>4}  {r['query']}")
 
 
 @app.command()

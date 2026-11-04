@@ -218,6 +218,12 @@ it's used.
 
 ## 5. Managing clients
 
+`memcairn stats` shows counts and how agents actually use memory: calls per tool, tokens per
+call (average and maximum), empty results, latency and errors. `--days 30` widens the
+window and `--queries` lists recent recall queries, which are good material for your own
+benchmark. Every tool call is logged with its query text and kept 30 days; set
+`MEMCAIRN_LOG_QUERIES=0` to log costs only.
+
 ```bash
 docker compose exec memcairn memcairn token list          # clients, scope, last seen
 docker compose exec memcairn memcairn token revoke <name> # disconnect a machine

@@ -62,3 +62,16 @@ def test_compat_tools():
     assert "lunch ordering app" in call(srv, "open_nodes", names=["OBED"])
     assert "OBED (project, 1 facts)" in call(srv, "read_graph")
     assert "lunch" in call(srv, "search_nodes", query="lunch")
+
+
+def test_calls_are_logged(server):
+    call(server, "remember", content="Plex runs natively", entity="Plex")
+    call(server, "recall", query="plex")
+    call(server, "recall", query="kubernetes", mode="deep")
+    call(server, "get", ids=["m99"])
+    store = server._memcairn_store
+    rows = {r["tool"]: r for r in store.usage()}
+    assert rows["recall"]["calls"] == 2 and rows["recall"]["empty"] == 1
+    assert rows["get"]["errors"] == 1
+    logged = [r["query"] for r in store.conn.execute("SELECT query FROM call_log WHERE tool='recall'")]
+    assert logged == ["plex", "kubernetes [deep]"]

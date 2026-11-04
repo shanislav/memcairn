@@ -125,6 +125,21 @@ MIGRATIONS: list[str] = [
     ALTER TABLE memory ADD COLUMN status TEXT;
     UPDATE memory SET status = 'open' WHERE type = 'todo';
     """,
+    # 4 — usage log: what agents ask and what it costs them (kept 30 days)
+    """
+    CREATE TABLE call_log (
+        id     INTEGER PRIMARY KEY,
+        ts     TEXT NOT NULL,
+        client TEXT,
+        tool   TEXT NOT NULL,
+        query  TEXT,
+        tokens INTEGER NOT NULL,
+        hits   INTEGER,
+        ms     REAL NOT NULL,
+        error  INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX call_log_ts ON call_log (ts);
+    """,
 ]
 
 

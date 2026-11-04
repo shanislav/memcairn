@@ -118,10 +118,19 @@ def history(rows: list[sqlite3.Row]) -> str:
     return "\n".join(out)
 
 
+# "deployed abc1234", "v2.1.317", "28 tests pass": current state, stale by next week
+STATUS_LIKE = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"
+                         r"|(?<![\d.])v?\d+\.\d+\.\d+(?![\d.])"  # a version, not an IP
+                         r"|\b\d+ (tests?|testov) (pass|preš)", re.I)
+
+
 def written(row: sqlite3.Row, dups: list[sqlite3.Row], *, verb: str = "ok") -> str:
     text = f"{verb} m{row['id']} v{row['version']}"
-    if len(row["content"]) > 500:
+    content = row["content"]
+    if len(content) > 500:
         text += " — long; prefer short atomic facts (split it?)"
+    elif len(content) > 150 and STATUS_LIKE.search(content):
+        text += " — reads like a status report (commits/versions go stale); keep the lasting fact"
     if dups:
         text += "\npossible duplicates (update/supersede instead?):\n" + "\n".join(
             f"m{d['id']} · {oneline(d['content'], 100)}" for d in dups)

@@ -6,6 +6,7 @@ import bisect
 import json
 import logging
 import math
+import os
 import re
 import sqlite3
 import threading
@@ -858,6 +859,29 @@ class Store:
                ORDER BY m.pinned DESC, m.importance DESC, m.id""",
             (entity_id,),
         ).fetchall()
+
+    def log_call(self, *, client: str | None, tool: str, query: str | None, tokens: int,
+                 hits: int | None, ms: float, error: bool = False) -> None:
+        """Record one tool call. Query text is kept unless MEMCAIRN_LOG_QUERIES=0."""
+        if os.environ.get("MEMCAIRN_LOG_QUERIES", "1") == "0":
+            query = None
+        with self.lock:
+            self.conn.execute(
+                """INSERT INTO call_log (ts, client, tool, query, tokens, hits, ms, error)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (now(), client, tool, (query or None) and query[:300], tokens, hits,
+                 round(ms, 1), int(error)))
+            self._calls = getattr(self, "_calls", 0) + 1
+            if self._calls % 500 == 1:
+                self.conn.execute("DELETE FROM call_log WHERE ts < datetime('now', '-30 days')")
+
+    def usage(self, days: int = 7) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """SELECT tool, count(*) AS calls, round(avg(tokens)) AS avg_tokens,
+                      max(tokens) AS max_tokens, round(avg(hits), 1) AS avg_hits,
+                      sum(hits = 0) AS empty, round(avg(ms), 1) AS avg_ms, sum(error) AS errors
+               FROM call_log WHERE ts >= datetime('now', ?) GROUP BY tool ORDER BY calls DESC""",
+            (f"-{days} days",)).fetchall()
 
     def stats(self) -> dict[str, int]:
         def q(sql):
