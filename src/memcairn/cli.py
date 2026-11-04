@@ -299,6 +299,29 @@ def review(
 
 
 @app.command()
+def purge(
+    values_file: Path = typer.Option(..., "--values", help="File with one string to remove "
+                                     "per line ('-' = stdin). Never pass secrets as arguments."),
+    db: Path = DbOpt,
+    dry_run: bool = typer.Option(False, help="Only count where the strings occur."),
+    replacement: str = typer.Option("[removed]", help="Text put in their place."),
+):
+    """Remove strings for real (a leaked secret): facts, history, documents, indexes, logs."""
+    import sys
+
+    from . import purge as pg
+
+    text = sys.stdin.read() if str(values_file) == "-" else values_file.read_text("utf-8")
+    values = [v.strip() for v in text.splitlines() if v.strip()]
+    store = open_store(db, vectors=not dry_run)
+    counts = pg.purge_text(store, values, replacement=replacement, dry_run=dry_run)
+    typer.echo(", ".join(f"{t}: {n}" for t, n in counts.items()))
+    if not dry_run:
+        left = pg.leftovers(store, values)
+        typer.echo(f"left anywhere: {left}. Backups made earlier still contain the text.")
+
+
+@app.command()
 def setup(
     yes: bool = typer.Option(False, "--yes", help="Apply every offered change without asking."),
     dry_run: bool = typer.Option(False, help="Only show what would change."),

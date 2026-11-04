@@ -193,6 +193,8 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
+    # Deleted or overwritten text is zeroed in the file, not left in free pages.
+    conn.execute("PRAGMA secure_delete = ON")
     migrate(conn)
     return conn
 
