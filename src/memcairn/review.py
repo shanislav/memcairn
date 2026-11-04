@@ -14,7 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from .format import STATUS_LIKE, oneline, tokens
-from .store import Store
+from .store import Store, different_hosts
 
 LIVE = "m.deleted_at IS NULL AND m.superseded_by IS NULL"
 
@@ -71,7 +71,8 @@ def similar_pairs(store: Store, threshold: float = 0.9) -> list[Item]:
         sims = mat @ mat.T
         for i in range(len(group)):
             for j in range(i + 1, len(group)):
-                if sims[i, j] >= threshold and group[i]["content"] != group[j]["content"]:
+                if (sims[i, j] >= threshold and group[i]["content"] != group[j]["content"]
+                        and not different_hosts(group[i]["content"], group[j]["content"])):
                     a, b = group[i], group[j]
                     out.append(Item("similar", [a["id"], b["id"]], a["entity_name"],
                                     tokens(min(a["content"], b["content"], key=len)),

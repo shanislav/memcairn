@@ -131,6 +131,16 @@ def normalize_type(t: str | None) -> str:
     return TYPE_ALIASES.get(key, key)
 
 
+IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+
+
+def different_hosts(a: str, b: str) -> bool:
+    """Both texts name IP addresses and share none: likely two machines on one template
+    ("Chimera1: .211 | MySQL" vs "Chimera2: .212 | MySQL"), not one fact said twice."""
+    ips_a, ips_b = set(IPV4.findall(a)), set(IPV4.findall(b))
+    return bool(ips_a and ips_b and not ips_a & ips_b)
+
+
 def _desc(day: str) -> str:
     """Sort key that orders ISO dates newest first (empty = unknown = last)."""
     return "".join(chr(0x7F - ord(c)) for c in day) if day else chr(0x7F)
@@ -415,7 +425,8 @@ class Store:
                 continue
             cand = self._row(other)
             if (cand["entity_id"] == row["entity_id"] and not cand["deleted_at"]
-                    and not cand["superseded_by"]):
+                    and not cand["superseded_by"]
+                    and not different_hosts(row["content"], cand["content"])):
                 out.append(cand)
             if len(out) >= limit:
                 break
