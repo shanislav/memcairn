@@ -127,10 +127,22 @@ def history(rows: list[sqlite3.Row]) -> str:
     return "\n".join(out)
 
 
-# "deployed abc1234", "v2.1.317", "28 tests pass": current state, stale by next week
-STATUS_LIKE = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"
-                         r"|(?<![\d.])v?\d+\.\d+\.\d+(?![\d.])"  # a version, not an IP
-                         r"|\b\d+ (tests?|testov) (pass|preš)", re.I)
+# "deployed abc1234", "28 tests pass", "installed v2.1.317": current state, stale by next
+# week. A version alone ("pacemaker 1.1.11") is a lasting fact, so it needs a change verb.
+_HASH_OR_TESTS = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"
+                            r"|\b\d+ (tests?|testov) (pass|preš)", re.I)
+_VERSION = re.compile(r"(?<![\d.])v?\d+\.\d+\.\d+(?![\d.])")  # a version, not an IP
+_CHANGE = re.compile(r"(?i)\b(nasaden|deploy|nainštal|install|upgrad|aktualiz|update[d ])")
+
+
+class _StatusLike:
+    @staticmethod
+    def search(text: str) -> bool:
+        return bool(_HASH_OR_TESTS.search(text)
+                    or (_VERSION.search(text) and _CHANGE.search(text)))
+
+
+STATUS_LIKE = _StatusLike()
 
 
 def written(row: sqlite3.Row, dups: list[sqlite3.Row], *, verb: str = "ok") -> str:

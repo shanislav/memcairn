@@ -162,3 +162,10 @@ def test_status_report_hint(store):
                               "in /root/dockers/memcairn; back up first with memcairn backup, "
                               "never cp the database because of the WAL file next to it")
     assert "status report" not in format.written(plain, [])
+
+
+def test_version_alone_is_not_status():
+    from memcairn.format import STATUS_LIKE
+    assert not STATUS_LIKE.search("cluster runs pacemaker 1.1.11 with crm, not pcs")
+    assert STATUS_LIKE.search("installed claude 2.1.317 on the server")
+    assert not STATUS_LIKE.search("server 192.168.20.11 deployed")
