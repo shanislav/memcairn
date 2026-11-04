@@ -218,6 +218,11 @@ it's used.
 
 ## 5. Managing clients
 
+`memcairn chronicle "FireClu3"` prints everything memory knows about a topic in date
+order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup
+replaced. `--out file.md` writes it to a file and `--current-only` leaves out the replaced
+versions. In `get(ids, history=true)`, a fact also lists the earlier facts it replaced.
+
 `memcairn stats` shows counts and how agents actually use memory: calls per tool, tokens per
 call (average and maximum), empty results, latency and errors. `--days 30` widens the
 window and `--queries` lists recent recall queries, which are good material for your own

@@ -139,6 +139,7 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             text = format.memory_full(row)
             if history:
                 text += "\n" + format.history(store.history(row["id"]))
+                text += format.predecessors(store.predecessors(row["id"]))
             out.append(text)
         return format.HEADER + "\n" + "\n---\n".join(out)
 

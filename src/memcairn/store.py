@@ -615,6 +615,21 @@ class Store:
             "SELECT * FROM memory_history WHERE memory_id = ? ORDER BY id", (parse_id(ref),)
         ).fetchall()
 
+    def predecessors(self, ref: str | int) -> list[sqlite3.Row]:
+        """Earlier versions this memory replaced (supersede chain), oldest first."""
+        out, frontier, seen = [], [parse_id(ref)], set()
+        while frontier:
+            mid = frontier.pop()
+            for r in self.conn.execute(
+                    """SELECT m.*, e.name AS entity_name, s.key AS scope_key FROM memory m
+                       LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id
+                       WHERE m.superseded_by = ?""", (mid,)):
+                if r["id"] not in seen:
+                    seen.add(r["id"])
+                    out.append(r)
+                    frontier.append(r["id"])
+        return sorted(out, key=lambda r: r["recorded_at"])
+
     def relations(self, entity_id: int) -> list[sqlite3.Row]:
         return self.conn.execute(
             """SELECT r.type, a.name AS from_name, b.name AS to_name FROM relation r

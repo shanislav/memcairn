@@ -84,7 +84,10 @@ Writes that look like credentials (API keys, tokens, `password=…`) are refused
 that look like an existing one (same words, or same meaning on the same topic) come back as
 candidates to update instead.
 
-`memcairn doctor` checks a client's setup and the server's database. It is a CLI
+`memcairn chronicle "topic"` writes everything memory knows about a topic as a dated
+markdown story, including earlier versions that were replaced. It's documentation
+generated on demand, with nothing to maintain. `memcairn doctor` checks a client's setup
+and the server's database. It is a CLI
 command, not an MCP tool, so it costs agents nothing.
 
 ## Development

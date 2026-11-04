@@ -109,6 +109,15 @@ def memory_full(row: sqlite3.Row) -> str:
     return " · ".join(meta) + "\n" + row["content"]
 
 
+def predecessors(rows: list[sqlite3.Row]) -> str:
+    """Older facts this one replaced; full text via get(mX)."""
+    if not rows:
+        return ""
+    return "\n" + "\n".join(
+        f"  replaced m{r['id']} ({r['recorded_at'][:10]}, {len(r['content'])} chars): "
+        + oneline(r["content"], 100) for r in rows)
+
+
 def history(rows: list[sqlite3.Row]) -> str:
     out = []
     for h in rows:

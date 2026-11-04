@@ -185,6 +185,24 @@ def stats(db: Path = DbOpt, days: int = typer.Option(7, help="Usage window in da
 
 
 @app.command()
+def chronicle(
+    name: str = typer.Argument(..., help="Entity name (exact, or a part of it)."),
+    db: Path = DbOpt,
+    out: Path = typer.Option(None, help="Write markdown here instead of printing."),
+    current_only: bool = typer.Option(False, help="Leave out replaced earlier versions."),
+):
+    """Everything memory knows about a topic, in date order, as markdown."""
+    from .chronicle import chronicle as build_chronicle
+
+    text = build_chronicle(open_store(db, vectors=False), name, current_only=current_only)
+    if out:
+        out.write_text(text, encoding="utf-8")
+        typer.echo(f"written {out}")
+    else:
+        typer.echo(text)
+
+
+@app.command()
 def review(
     db: Path = DbOpt,
     kind: list[str] = typer.Option(None, help="dup, similar, long, status, todo (default all)"),
