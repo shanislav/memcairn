@@ -185,6 +185,31 @@ def stats(db: Path = DbOpt, days: int = typer.Option(7, help="Usage window in da
 
 
 @app.command()
+def review(
+    db: Path = DbOpt,
+    kind: list[str] = typer.Option(None, help="dup, similar, long, status, todo (default all)"),
+    limit: int = typer.Option(30, help="Show at most this many items."),
+    fix_duplicates: bool = typer.Option(False, help="Soft-delete exact duplicate copies."),
+):
+    """What to clean up, biggest token savings first. Only --fix-duplicates changes data."""
+    from . import review as rv
+
+    store = open_store(db, vectors=False)
+    if fix_duplicates:
+        typer.echo(f"forgot {rv.fix_exact_duplicates(store)} duplicate copies "
+                   "(restore with forget undo=true)")
+    items = rv.review(store, kind or None)
+    counts: dict[str, int] = {}
+    for i in items:
+        counts[i.kind] = counts.get(i.kind, 0) + 1
+    for i in items[:limit]:
+        typer.echo(i.line())
+    total = sum(i.saving for i in items)
+    typer.echo(f"\n{len(items)} items ({', '.join(f'{k} {v}' for k, v in counts.items())}); "
+               f"~{total} tokens saved per full read if all were fixed")
+
+
+@app.command()
 def doctor(
     db: Path = DbOpt,
     url: str = typer.Option(None, help="Server URL; default: the 'memory' entry in ~/.claude.json."),
