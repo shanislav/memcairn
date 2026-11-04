@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import bisect
+import contextlib
+import functools
 import json
 import logging
 import math
@@ -13,6 +15,7 @@ import threading
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from . import secretscan, temporal
 from .db import now
@@ -116,6 +119,51 @@ nie o od po pod pre preco proc pri s sa si so su ta tak tam ten to tu uz v ve vo
 an and are can do does for from how in is it of on or the this to was what when where which
 who why with
 """.split())
+
+
+# Words that name the same thing (folded prefixes; sk/cs/en). A query word that starts with
+# one member also matches the others, in FTS and in coverage. Kept small on purpose: each
+# group must be the same thing, not merely related. More groups: one per line, members
+# separated by spaces, in $MEMCAIRN_SYNONYMS (a file).
+SYNONYMS = [
+    "ilo bmc ipmi idrac ilom imm",
+    "zaloh backup",
+    "hesl password passw",
+    "nasad deploy",
+    "databaz database",
+    "postgres pgsql",
+    "certifik certificate cert",
+    "tlaciar printer",
+]
+
+
+@functools.cache
+def _synonym_groups() -> tuple[tuple[str, ...], ...]:
+    lines = list(SYNONYMS)
+    path = os.environ.get("MEMCAIRN_SYNONYMS")
+    if path:
+        with contextlib.suppress(OSError):
+            lines += Path(path).read_text(encoding="utf-8").splitlines()
+    return tuple(tuple(fold(w) for w in line.split()) for line in lines
+                 if line.strip() and not line.lstrip().startswith("#"))
+
+
+@functools.cache
+def alternatives(term: str) -> tuple[str, ...]:
+    """The term plus the members of its synonym group (prefixes)."""
+    out = [term]
+    for group in _synonym_groups():
+        if any(term.startswith(m) if len(m) >= 3 else term == m for m in group):
+            out += [m for m in group if m not in out]
+    return tuple(out)
+
+
+def covered(q: str, words: set[str], stems: set[str]) -> bool:
+    """Does a text with these words match query word q (prefix, stem or a synonym)?"""
+    for alt in alternatives(q):
+        if stem(alt) in stems or any(t.startswith(alt) or t.startswith(stem(alt)) for t in words):
+            return True
+    return False
 
 
 def query_terms(text: str) -> list[str]:
@@ -705,7 +753,7 @@ class Store:
             return listing()
 
         # Lexical candidates (FTS5 BM25).
-        fts_terms = [stem(t) if deep else t for t in qterms]
+        fts_terms = [stem(a) if deep else a for t in qterms for a in alternatives(t)]
         match = " OR ".join(f'"{t}"*' for t in dict.fromkeys(fts_terms))
         sql = base.format(rank=", bm25(memory_fts, 1.0, 0.5, 2.0) AS rank",
                           src="memory_fts JOIN memory m ON m.id = memory_fts.rowid")
@@ -789,8 +837,7 @@ class Store:
         for r in rows:
             words = set(terms(f"{r['content']} {r['path']} {r['doc_name']}", limit=10_000))
             stems = {stem(t) for t in words}
-            matched = sum(1 for q in qterms if any(t.startswith(q) for t in words)
-                          or stem(q) in stems or any(t.startswith(stem(q)) for t in words))
+            matched = sum(1 for q in qterms if covered(q, words, stems))
             coverage = matched / len(qterms) if qterms else 0.0
             bm = -r["rank"] / worst if worst > 0 else 0.0
             score = round((0.6 * coverage + 0.4 * bm) * 0.75 + 0.15 * 0.4 + 0.1 - 0.02, 3)
@@ -831,11 +878,7 @@ class Store:
             limit=10_000))
         stems = {stem(t) for t in text_terms}
         if qterms:
-            matched = sum(
-                1 for q in qterms
-                if any(t.startswith(q) for t in text_terms) or stem(q) in stems
-                or any(t.startswith(stem(q)) for t in text_terms)
-            )
+            matched = sum(1 for q in qterms if covered(q, text_terms, stems))
             coverage = matched / len(qterms)
         else:
             coverage = 0.0

@@ -193,3 +193,26 @@ def test_ids_are_not_status():
     assert not STATUS_LIKE.search("feeder uuid 3f2a9c1e-77b4-4d0e-9a11-0c5e8b7d6f21 on adsb")
     assert not STATUS_LIKE.search("docker_lan bridge is br-512cbdcc4ef3")
     assert STATUS_LIKE.search("merged and deployed c34baa5 to dev")
+
+
+def test_synonyms_match_the_same_thing(store):
+    store.remember("Storage1 BMC is at 10.0.0.34, IPMI over lanplus", entity="Storage")
+    store.remember("Deploy postup pre obed: rsync, build, up -d", entity="Obed")
+    assert "BMC" in store.recall("storage1 ilo").hits[0].memory["content"]
+    res = store.recall("ako nasadiť obed")
+    assert res.hits and "Deploy" in res.hits[0].memory["content"] and res.coverage == 1.0
+
+
+def test_synonyms_from_file(tmp_path, monkeypatch):
+    from memcairn import store as st
+
+    (tmp_path / "syn.txt").write_text("# own groups\nkanc office\n", encoding="utf-8")
+    monkeypatch.setenv("MEMCAIRN_SYNONYMS", str(tmp_path / "syn.txt"))
+    st._synonym_groups.cache_clear()
+    st.alternatives.cache_clear()
+    try:
+        assert "office" in st.alternatives("kancla")
+    finally:
+        monkeypatch.delenv("MEMCAIRN_SYNONYMS")
+        st._synonym_groups.cache_clear()
+        st.alternatives.cache_clear()
