@@ -165,6 +165,34 @@ and can write at the same time.
 **Other MCP clients** connect the same way: a Streamable HTTP URL plus an
 `Authorization: Bearer` header.
 
+### claude.ai, Claude Desktop chat and the mobile apps (OAuth)
+
+Custom connectors there can't send a fixed token; they sign in with OAuth. Memcairn has a
+small OAuth server built in, off by default. Approving a connection needs no password:
+you paste a Memcairn client token once, and the connector then acts as that client
+(writes show `by=<name>`, its default scope applies, `token revoke <name>` cuts it off).
+
+1. Turn it on: `MEMCAIRN_OAUTH=1` (or `serve --oauth`), with `MEMCAIRN_PUBLIC_URL` set to
+   the public HTTPS address. Static tokens keep working, so Claude Code is unaffected.
+2. Create the client: `memcairn token add claude-ai`.
+3. **Let Anthropic reach the server.** These connectors are called from Anthropic's
+   cloud, not from your phone, so a LAN/VPN-only server is out of reach. Allow Anthropic's
+   published outbound ranges (they change only with notice; check
+   [the list](https://platform.claude.com/docs/en/api/ip-addresses)), e.g. in nginx:
+
+   ```nginx
+   allow 160.79.104.0/21;   # Anthropic outbound (MCP connectors)
+   allow 153.61.208.0/20;
+   ```
+
+4. In claude.ai: Settings → Connectors → Add custom connector, URL
+   `https://memory.example.com/mcp`, no client ID. A Memcairn page opens: paste the
+   `claude-ai` token and approve. The connector is then available in claude.ai, the
+   desktop app's chat and the mobile apps (enable it per chat under "+" → Connectors).
+
+Access tokens last 24 hours, refresh tokens 90 days and are rotated on every use; only
+their hashes are stored.
+
 **Name the server `memory`** if you're replacing the official memory server. The tool
 names become `mcp__memory__recall` and so on, which is what the snippet below assumes.
 

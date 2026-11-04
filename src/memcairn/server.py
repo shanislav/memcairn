@@ -11,7 +11,7 @@ from typing import Literal
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.settings import AuthSettings
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp_types import ToolAnnotations
 
@@ -92,9 +92,21 @@ class StoreTokenVerifier:
 
 
 def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
-          stdio_client: str | None = None) -> MCPServer:
+          stdio_client: str | None = None, oauth: bool = False) -> MCPServer:
     kwargs = {}
-    if auth_url:
+    provider = None
+    if auth_url and oauth:
+        from .oauth import MemcairnOAuth
+
+        provider = MemcairnOAuth(store, auth_url)
+        kwargs["auth_server_provider"] = provider
+        kwargs["auth"] = AuthSettings(
+            issuer_url=auth_url, resource_server_url=auth_url.rstrip("/") + "/mcp",
+            validate_token_resource=False,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+            revocation_options=RevocationOptions(enabled=True),
+        )
+    elif auth_url:
         kwargs["token_verifier"] = StoreTokenVerifier(store)
         kwargs["auth"] = AuthSettings(
             issuer_url=auth_url, resource_server_url=auth_url.rstrip("/") + "/mcp",
@@ -105,7 +117,9 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
 
     def client() -> str | None:
         tok = get_access_token()
-        return tok.client_id if tok else (stdio_client or os.environ.get("MEMCAIRN_CLIENT"))
+        if tok:  # an OAuth token acts as the Memcairn client that approved it
+            return tok.subject or tok.client_id
+        return stdio_client or os.environ.get("MEMCAIRN_CLIENT")
 
     def default_scope(scope: str | None) -> str:
         if scope:
@@ -257,8 +271,38 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             return True, None
         header = request.headers.get("authorization", "")
         token = header[7:] if header.lower().startswith("bearer ") else ""
-        tok = await StoreTokenVerifier(store).verify_token(token) if token else None
-        return (tok is not None), (tok.client_id if tok else None)
+        if not token:
+            return False, None
+        tok = await (provider.load_access_token(token) if provider
+                     else StoreTokenVerifier(store).verify_token(token))
+        return (tok is not None), ((tok.subject or tok.client_id) if tok else None)
+
+    if provider:
+        @mcp.custom_route("/oauth/approve", methods=["GET", "POST"])
+        async def oauth_approve(request):
+            from urllib.parse import urlparse
+
+            from starlette.responses import HTMLResponse, RedirectResponse
+
+            from .oauth import approve_page
+
+            form = await request.form() if request.method == "POST" else {}
+            req = form.get("req") or request.query_params.get("req", "")
+            row, params = provider.pending(req)
+            if not row:
+                return HTMLResponse("This approval link expired. Connect again.", 400)
+            client = await provider.get_client(row["client_id"])
+            name = (client.client_name if client else None) or row["client_id"]
+            host = urlparse(str(params.redirect_uri)).netloc
+            if request.method == "GET":
+                return HTMLResponse(approve_page(name, host, req))
+            if form.get("action") == "deny":
+                return RedirectResponse(provider.deny(req), 302)
+            try:
+                return RedirectResponse(provider.approve(req, form.get("token", "")), 302)
+            except ValueError:
+                return HTMLResponse(approve_page(name, host, req, "Unknown or revoked token."),
+                                    401)
 
     @mcp.custom_route("/docs", methods=["GET"])
     async def docs_list(request):

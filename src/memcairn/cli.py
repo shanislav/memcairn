@@ -47,6 +47,8 @@ def serve(
     compat: bool = typer.Option(False, envvar="MEMCAIRN_COMPAT",
                                 help="Also expose server-memory compatible tools."),
     client: str = typer.Option(None, envvar="MEMCAIRN_CLIENT", help="Client name (stdio)."),
+    oauth: bool = typer.Option(False, envvar="MEMCAIRN_OAUTH",
+                               help="Also accept OAuth (claude.ai connectors); needs --public-url."),
 ):
     """Run the MCP server."""
     store = open_store(db)
@@ -61,7 +63,8 @@ def serve(
         threading.Thread(target=_review_forever, args=(store, hours), name="review",
                          daemon=True).start()
     try:
-        _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client)
+        _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client,
+               oauth)
     finally:
         # Fold the WAL back into the main file so the .db alone is a complete copy.
         with store.lock:
@@ -100,7 +103,8 @@ def _review_forever(store: Store, hours: float) -> None:
         time.sleep(hours * 3600)
 
 
-def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client):
+def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client,
+           oauth=False):
     if transport == "stdio":
         build(store, compat=compat, stdio_client=client).run("stdio")
         return
@@ -108,7 +112,9 @@ def _serve(store, transport, host, port, public_url, allowed_host, no_auth, comp
     from mcp.server.transport_security import TransportSecuritySettings
 
     auth_url = None if no_auth else (public_url or f"http://{host}:{port}")
-    server = build(store, compat=compat, auth_url=auth_url)
+    if oauth and not public_url:
+        raise typer.BadParameter("--oauth needs --public-url (the address claude.ai reaches)")
+    server = build(store, compat=compat, auth_url=auth_url, oauth=oauth)
     hosts = [f"{host}:*", "127.0.0.1:*", "localhost:*", *(allowed_host or [])]
     if public_url:
         hosts.append(public_url.split("://", 1)[-1].split("/", 1)[0])

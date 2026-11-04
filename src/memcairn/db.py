@@ -178,6 +178,36 @@ MIGRATIONS: list[str] = [
         content, path, doc, tokenize = '{FTS_TOKENIZER}'
     );
     """,
+    # 7 — OAuth for connectors that can't send a static token (claude.ai); hashes only
+    """
+    CREATE TABLE oauth_client (
+        client_id  TEXT PRIMARY KEY,
+        info       TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE oauth_pending (
+        id        TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        params    TEXT NOT NULL,
+        created   REAL NOT NULL
+    );
+    CREATE TABLE oauth_code (
+        code_hash  TEXT PRIMARY KEY,
+        data       TEXT NOT NULL,
+        expires_at REAL NOT NULL
+    );
+    CREATE TABLE oauth_token (
+        token_hash TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        client_id  TEXT NOT NULL,
+        subject    TEXT NOT NULL,
+        scopes     TEXT NOT NULL,
+        resource   TEXT,
+        expires_at INTEGER NOT NULL,
+        revoked_at TEXT
+    );
+    CREATE INDEX oauth_token_subject ON oauth_token (subject);
+    """,
 ]
 
 
