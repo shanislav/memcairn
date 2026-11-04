@@ -177,7 +177,9 @@ def doctor(
     from . import doctor as d
 
     home, cwd = Path.home(), Path.cwd()
-    findings = d.check_configs(home, cwd, name) + d.check_hook(home)
+    is_client = url or any(p.is_file() for _, p in d.config_files(home, cwd))
+    # e.g. inside the server container: no Claude here, so only the database is checked
+    findings = d.check_configs(home, cwd, name) + d.check_hook(home) if is_client else []
     if not url:
         try:
             spec = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
