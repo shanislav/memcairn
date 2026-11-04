@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["fastembed>=0.4", "numpy>=1.26"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "numpy>=1.26"]  # tests use numpy with fake embedders
 
 [project.scripts]
 memcairn = "memcairn.cli:app"
