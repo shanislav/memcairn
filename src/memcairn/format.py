@@ -128,18 +128,20 @@ def history(rows: list[sqlite3.Row]) -> str:
 
 
 # "deployed abc1234", "28 tests pass", "installed v2.1.317": current state, stale by next
-# week. A version alone ("pacemaker 1.1.11") is a lasting fact, so it needs a change verb.
-_HASH_OR_TESTS = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"
-                            r"|\b\d+ (tests?|testov) (pass|preš)", re.I)
+# week. A version or a hex id alone ("pacemaker 1.1.11", a UUID, br-512cbdcc4ef3, a
+# plex.direct host) is a lasting fact, so those need a change word next to them.
+_TESTS = re.compile(r"\b\d+ (tests?|testov) (pass|preš)", re.I)
+_HASH = re.compile(r"(?<![\w-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w-])", re.I)
 _VERSION = re.compile(r"(?<![\d.])v?\d+\.\d+\.\d+(?![\d.])")  # a version, not an IP
-_CHANGE = re.compile(r"(?i)\b(nasaden|deploy|nainštal|install|upgrad|aktualiz|update[d ])")
+_CHANGE = re.compile(r"(?i)\b(commit|nasaden|deploy|nainštal|install|upgrad|aktualiz|"
+                     r"update[d ]|merge|pushn)")
 
 
 class _StatusLike:
     @staticmethod
     def search(text: str) -> bool:
-        return bool(_HASH_OR_TESTS.search(text)
-                    or (_VERSION.search(text) and _CHANGE.search(text)))
+        return bool(_TESTS.search(text) or ((_HASH.search(text) or _VERSION.search(text))
+                                            and _CHANGE.search(text)))
 
 
 STATUS_LIKE = _StatusLike()

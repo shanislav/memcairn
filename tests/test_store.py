@@ -169,3 +169,10 @@ def test_version_alone_is_not_status():
     assert not STATUS_LIKE.search("cluster runs pacemaker 1.1.11 with crm, not pcs")
     assert STATUS_LIKE.search("installed claude 2.1.317 on the server")
     assert not STATUS_LIKE.search("server 192.168.20.11 deployed")
+
+
+def test_ids_are_not_status():
+    from memcairn.format import STATUS_LIKE
+    assert not STATUS_LIKE.search("feeder uuid 3f2a9c1e-77b4-4d0e-9a11-0c5e8b7d6f21 on adsb")
+    assert not STATUS_LIKE.search("docker_lan bridge is br-512cbdcc4ef3")
+    assert STATUS_LIKE.search("merged and deployed 4455523 to dev")
