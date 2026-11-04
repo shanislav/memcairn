@@ -59,7 +59,8 @@ def similar_pairs(store: Store, threshold: float = 0.9) -> list[Item]:
     rows = store.conn.execute(
         f"""SELECT m.id, m.entity_id, m.content, e.name AS entity_name, v.vec FROM memory m
             JOIN memory_vec v ON v.memory_id = m.id LEFT JOIN entity e ON e.id = m.entity_id
-            WHERE {LIVE} AND m.entity_id IS NOT NULL""").fetchall()
+            WHERE {LIVE} AND m.entity_id IS NOT NULL
+            AND NOT (m.type = 'todo' AND m.status IN ('done', 'dropped'))""").fetchall()
     by_entity: dict[int, list[sqlite3.Row]] = {}
     for r in rows:
         by_entity.setdefault(r["entity_id"], []).append(r)
