@@ -139,3 +139,21 @@ def get_chunk(store: Store, name: str, anchor: str) -> sqlite3.Row:
     if not row:
         raise NotFound(f"doc:{name}#{anchor} not found (document changed? see doc:{name}?toc)")
     return row
+
+
+def delete_doc(store: Store, name: str) -> int:
+    """Remove a document with all its versions and parts. Returns versions removed.
+
+    Admin only (CLI), not an MCP tool. Remove it from every machine's sync.toml first,
+    or the next `memcairn sync` there uploads it again.
+    """
+    get_doc(store, name)  # raises if missing
+    with store._tx():
+        ids = [r["id"] for r in store.conn.execute(
+            "SELECT id FROM doc_chunk WHERE doc_name = ?", (name,))]
+        for cid in ids:
+            store.conn.execute("DELETE FROM doc_chunk_fts WHERE rowid = ?", (cid,))
+        store.conn.execute("DELETE FROM doc_chunk WHERE doc_name = ?", (name,))
+        n = store.conn.execute("DELETE FROM document_version WHERE name = ?", (name,)).rowcount
+        store.conn.execute("DELETE FROM document WHERE name = ?", (name,))
+    return n

@@ -88,3 +88,12 @@ def test_get_part_outline_and_reindex_keeps_unchanged_parts():
     after = {r["anchor"]: r["id"] for r in store.conn.execute("SELECT * FROM doc_chunk")}
     assert after == ids  # same anchors, same rows: nothing renumbered
     assert "Main server" in get("doc:servers#home-server")
+
+
+def test_delete_doc_removes_versions_and_parts():
+    store = store_with_inventory()
+    docs.put_doc(store, "servers", INVENTORY + "\nmore\n", base_version=1)
+    assert docs.delete_doc(store, "servers") == 2
+    for t in ("document", "document_version", "doc_chunk", "doc_chunk_fts"):
+        assert store.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] == 0
+    assert not store.recall("db7 mysql").chunks

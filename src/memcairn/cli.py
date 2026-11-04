@@ -23,6 +23,8 @@ token_app = typer.Typer(no_args_is_help=True, help="Manage client tokens.")
 import_app = typer.Typer(no_args_is_help=True, help="Import from other memory formats.")
 app.add_typer(token_app, name="token")
 app.add_typer(import_app, name="import")
+doc_app = typer.Typer(help="Shared documents.", no_args_is_help=True)
+app.add_typer(doc_app, name="doc")
 
 DEFAULT_DB = Path(os.environ.get("MEMCAIRN_DB", Path.home() / ".memcairn" / "memcairn.db"))
 DbOpt = typer.Option(DEFAULT_DB, "--db", envvar="MEMCAIRN_DB", help="SQLite database path.")
@@ -179,6 +181,28 @@ def token_revoke(name: str, db: Path = DbOpt):
         n = store.conn.execute("UPDATE client SET revoked_at = ? WHERE name = ?",
                                (now(), name)).rowcount
     typer.echo("revoked" if n else "no such client")
+
+
+@doc_app.command("list")
+def doc_list(db: Path = DbOpt):
+    """Shared documents: name, version, size, last writer."""
+    from . import docs
+
+    for d in docs.list_docs(open_store(db, vectors=False)):
+        typer.echo(f"{d['name']:<28} v{d['version']:<4} {d['size']:>7} chars  "
+                   f"{d['updated_at'][:10]}  by={d['client'] or '-'}")
+
+
+@doc_app.command("delete")
+def doc_delete(name: str, db: Path = DbOpt,
+               yes: bool = typer.Option(False, "--yes", help="Don't ask.")):
+    """Delete a document with all versions (remove it from every sync.toml first)."""
+    from . import docs
+
+    store = open_store(db, vectors=False)
+    if not yes and not typer.confirm(f"delete document {name} with all its versions?"):
+        raise typer.Exit(1)
+    typer.echo(f"deleted {name} ({docs.delete_doc(store, name)} versions)")
 
 
 @import_app.command("server-memory")
