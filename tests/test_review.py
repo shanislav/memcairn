@@ -55,3 +55,16 @@ def test_template_rows_for_different_hosts_are_not_pairs():
     store.remember("Chimera1C7: 192.168.20.211 | MySQL replikátor", entity="Chimera")
     store.remember("Chimera2C7: 192.168.20.212 | MySQL replikátor", entity="Chimera")
     assert rv.similar_pairs(store) == []
+
+
+def test_daily_check_keeps_one_todo_without_churn_and_closes_it_when_clean():
+    store = Store(connect(":memory:"))
+    ids = [store.remember("y" * 700 + str(i), entity=f"E{i}")[0]["id"] for i in range(10)]
+    assert rv.suggest_cleanup(store, minimum=10, origin="Daily memory check")[0] == 10
+    todo = next(h.memory for h in store.context() if h.memory["type"] == "todo")
+    rv.suggest_cleanup(store, minimum=10, origin="Daily memory check")
+    assert store.get([todo["id"]])[0]["version"] == todo["version"]  # same count: no new version
+    for mid in ids:
+        store.update(mid, content="short conclusion")
+    rv.suggest_cleanup(store, minimum=10, origin="Daily memory check")
+    assert store.get([todo["id"]])[0]["status"] == "done"

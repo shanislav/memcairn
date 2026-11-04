@@ -54,6 +54,10 @@ def serve(
     if store.embedder is not None:
         threading.Thread(target=_backfill_forever, args=(store,), name="backfill",
                          daemon=True).start()
+    hours = float(os.environ.get("MEMCAIRN_REVIEW_HOURS", "24"))
+    if hours > 0:
+        threading.Thread(target=_review_forever, args=(store, hours), name="review",
+                         daemon=True).start()
     try:
         _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client)
     finally:
@@ -76,6 +80,22 @@ def _backfill_forever(store: Store, retry_seconds: int = 600) -> None:
                 "backfill failed, retrying in %ds; recall uses full text meanwhile",
                 retry_seconds)
             time.sleep(retry_seconds)
+
+
+def _review_forever(store: Store, hours: float) -> None:
+    """Once in a while: when memories pile up long or status-like, leave a cleanup todo."""
+    from .review import suggest_cleanup
+
+    time.sleep(300)  # not during start-up
+    while True:
+        try:
+            n, saving = suggest_cleanup(store, minimum=10, origin="Daily memory check",
+                                        client="review")
+            if n:
+                logging.getLogger("memcairn").info("review: %d to clean (~%d tokens)", n, saving)
+        except Exception:
+            logging.getLogger("memcairn").exception("review failed")
+        time.sleep(hours * 3600)
 
 
 def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client):

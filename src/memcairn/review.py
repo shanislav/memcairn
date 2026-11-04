@@ -124,26 +124,31 @@ def fix_exact_duplicates(store: Store, client: str = "review") -> int:
 CLEANUP_TODO = "Memcairn cleanup"
 
 
-def suggest_cleanup(store: Store, *, scope: str = "global", minimum: int = 5) -> tuple[int, int]:
-    """After an import: if enough items need cleanup, leave one open todo saying so.
+def suggest_cleanup(store: Store, *, scope: str = "global", minimum: int = 5,
+                    origin: str = "After the import", client: str = "import") -> tuple[int, int]:
+    """If enough memories need cleanup, keep one open todo saying so; close it when clean.
 
     The todo shows up in the session-start context, so the next agent session offers the
-    cleanup on its own. Returns (items, tokens to save); (0, 0) when not worth it.
+    cleanup on its own. Runs after an import and, on the server, once a day. Returns
+    (items, tokens to save); (0, 0) when not worth it.
     """
     items = review(store, ["long", "status"])
-    if len(items) < minimum:
-        return 0, 0
-    saving = sum(i.saving for i in items)
     open_todo = store.conn.execute(
-        """SELECT m.id FROM memory m JOIN entity e ON e.id = m.entity_id
+        """SELECT m.id, m.content FROM memory m JOIN entity e ON e.id = m.entity_id
            WHERE e.name = ? AND m.type = 'todo' AND m.status = 'open'
            AND m.deleted_at IS NULL AND m.superseded_by IS NULL""", (CLEANUP_TODO,)).fetchone()
-    text = (f"After the import, {len(items)} memories are long or read like status logs "
+    if len(items) < minimum:
+        if open_todo and not items:  # nothing left: the todo would only cost context
+            store.update(open_todo["id"], status="done", client=client)
+        return 0, 0
+    saving = sum(i.saving for i in items)
+    text = (f"{origin}, {len(items)} memories are long or read like status logs "
             f"(~{saving} tokens). Offer the user a cleanup: the MCP prompt 'cleanup' lists them "
             "and the rules (a short conclusion plus separate facts; originals stay in history).")
     if open_todo:
-        store.update(open_todo["id"], content=text, client="import")
+        if f", {len(items)} memories " not in open_todo["content"]:  # no version churn
+            store.update(open_todo["id"], content=text, client=client)
     else:
         store.remember(text, type="todo", entity=CLEANUP_TODO, importance=0.9, scope=scope,
-                       client="import", check_duplicates=False)
+                       client=client, check_duplicates=False)
     return len(items), saving

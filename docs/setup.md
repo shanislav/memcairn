@@ -318,6 +318,13 @@ it says `low confidence — try mode=deep` when they don't.
 | `MEMCAIRN_EMBED_MODEL` | `minishlab/potion-multilingual-128M` (static model: ~0.5 GB, embeds 1,000 facts in under a second) | any [fastembed](https://github.com/qdrant/fastembed) text model; `none` disables semantic search |
 | `MEMCAIRN_MODEL_DIR` | see above | model cache |
 
+Plain recall also knows a few groups of words that name the same thing (`ilo bmc ipmi
+idrac`, `záloha backup`, `nasadiť deploy`, `heslo password`, …), so "storage1 ilo" finds a
+table whose column says BMC. Add your own in a file named by `MEMCAIRN_SYNONYMS`: one
+group per line, members separated by spaces, each a word or the start of one
+(`kanc office` matches kancel, kancli, office). Keep a group to words for the *same*
+thing; related words only add noise.
+
 When you change the model, everything is re-embedded on the next start. Vectors from the
 old model are ignored.
 
@@ -453,8 +460,12 @@ docker compose exec memcairn memcairn import server-memory /tmp/memory.json
 **One-time cleanup.** Memories written for the old server are often long logs that pack
 many things into one entry. They cost tokens and make search less precise. When the
 import finds enough of them, it leaves an open todo, which shows up at the next session
-start, so the agent offers to clean up. Run the `cleanup` prompt (`/mcp__memory__cleanup`
-in Claude Code, optionally with a batch size) one batch at a time:
+start, so the agent offers to clean up. The server repeats this check once a day: when 10
+or more memories have grown long or read like status logs, the same todo comes back with
+the new count, and it closes itself once nothing is left (`MEMCAIRN_REVIEW_HOURS`,
+default 24; 0 turns it off). Run the `cleanup` prompt (`/mcp__plugin_memcairn_memory__cleanup`
+with the plugin, `/mcp__memory__cleanup` with a manual setup; optionally with a batch
+size) one batch at a time:
 
 - each long memory is rewritten in place as a conclusion of up to 400 characters;
 - its reusable details (IPs, paths, commands, causes, decisions, open todos) become
