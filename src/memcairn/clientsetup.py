@@ -93,11 +93,20 @@ def plan(home: Path) -> list[Change]:
         out.append(Change("manual-mcp", 'remove the manual "memory" MCP server (the plugin '
                           "provides it)", claude_json, "mcpServers", drop_mcp,
                           {"spec": manual}))
-    ctx = [g for g in _session_groups(settings) if _is_context_hook(g)]
+    # only the /context hooks themselves: a group may also hold other hooks (e.g. sync)
+    ctx = [{**({"matcher": g["matcher"]} if "matcher" in g else {}),
+            "hooks": [h for h in g.get("hooks", []) if _is_context_hook({"hooks": [h]})]}
+           for g in _session_groups(settings) if _is_context_hook(g)]
     if plugin and ctx:
         def drop_hook(d: dict) -> None:
-            d["hooks"]["SessionStart"] = [g for g in _session_groups(d) if g not in ctx]
-            if not d["hooks"]["SessionStart"]:
+            groups = []
+            for g in _session_groups(d):
+                hooks = [h for h in g.get("hooks", []) if not _is_context_hook({"hooks": [h]})]
+                if hooks:
+                    groups.append({**g, "hooks": hooks})
+            if groups:
+                d["hooks"]["SessionStart"] = groups
+            else:
                 del d["hooks"]["SessionStart"]
         out.append(Change("manual-hook", "remove the manual SessionStart hook that loads "
                           "/context (the plugin provides it)", settings_path, "hooks",

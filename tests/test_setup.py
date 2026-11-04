@@ -59,6 +59,18 @@ def test_setup_moves_manual_setup_to_plugin_and_unsetup_restores(tmp_path):
     assert not (home / ".memcairn" / "client.toml").exists()
 
 
+def test_context_hook_removed_but_its_group_neighbours_kept(tmp_path):
+    home = home_with_manual_setup(tmp_path)
+    sync = {"type": "command", "command": "/root/.local/bin/memcairn sync --quiet"}
+    mixed = {"hooks": [sync, CTX_HOOK["hooks"][0]]}
+    write(home / ".claude" / "settings.json", {"enabledPlugins": {"memcairn@memcairn": True},
+                                               "hooks": {"SessionStart": [mixed]}})
+    ids = [c.id for c in cs.plan(home)]
+    assert "sync-hook" not in ids  # sync already runs
+    cs.run_setup(home, lambda c, diff: True, lambda s: None)
+    assert read(home / ".claude" / "settings.json")["hooks"]["SessionStart"] == [{"hooks": [sync]}]
+
+
 def test_without_plugin_manual_entries_stay(tmp_path):
     home = home_with_manual_setup(tmp_path, plugin=False)
     ids = [c.id for c in cs.plan(home)]
