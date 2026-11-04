@@ -8,6 +8,7 @@ How to run Memcairn as one central memory and connect agents to it.
 - [4. Scopes: shared vs separate memory](#4-scopes-shared-vs-separate-memory)
 - [5. Managing clients](#5-managing-clients)
 - [5a. Semantic search](#5a-semantic-search)
+- [5b. Shared documents and file sync](#5b-shared-documents-and-file-sync)
 - [6. Network and security](#6-network-and-security)
 - [7. Migrating from the official memory server](#7-migrating-from-the-official-memory-server)
 - [8. Troubleshooting](#8-troubleshooting)
@@ -257,6 +258,65 @@ it says `low confidence — try mode=deep` when they don't.
 
 When you change the model, everything is re-embedded on the next start. Vectors from the
 old model are ignored.
+
+## 5b. Shared documents and file sync
+
+Some things should stay a whole document rather than become facts: a server inventory,
+the part of your `CLAUDE.md` every machine should share, a long project plan. Memcairn
+stores these as **shared documents**. Every version is kept, and each machine syncs only
+the files you list.
+
+Agents can open a document with `get(ids=["doc:servers"])`. A `reference` memory pointing
+at it makes it findable by `recall`.
+
+**Choose what to sync** in `~/.memcairn/sync.toml` (nothing is synced without it):
+
+```toml
+# url and token default to the 'memory' entry in ~/.claude.json
+docs_dir = "~/.memcairn/docs"   # optional: mirror every shared document here
+
+[[file]]
+name = "servers"                # document name on the server
+path = "~/notes/servers.md"     # where it lives on this machine
+```
+
+The same `name` can map to a different `path` on each machine.
+
+Run `memcairn sync`, or put it in the SessionStart hook before the context call. With
+`--quiet` it prints nothing unless there is a conflict:
+
+```json
+{"type": "command", "command": "memcairn sync --quiet", "timeout": 10}
+```
+
+**What happens per file**, decided by content hash against the last sync, so unchanged
+files cost one request:
+
+| Changed | Result |
+|---|---|
+| nowhere | nothing |
+| on this machine | uploaded as a new version |
+| on the server | downloaded |
+| on both, in different places | three-way merge (`git merge-file`) against the last synced version, uploaded and written |
+| on both, in the same place | **nothing is overwritten**: the merge with conflict markers goes to `<file>.conflict` and an open todo asks the agent to show you both versions; you decide |
+
+The server rejects a write based on a stale version. Two machines therefore can't
+overwrite each other even when they sync at the same moment.
+
+**Sharing part of CLAUDE.md.** Claude Code `CLAUDE.md` files can import others with
+`@path`. Put the shared section into its own file, sync that file, and import it from each
+machine's own `CLAUDE.md`. Machine-specific parts then stay local.
+
+**Importing a Claude Code memory folder** (`~/.claude/projects/<project>/memory`):
+
+```bash
+memcairn import claude-memory ~/.claude/projects/<project>/memory
+```
+
+- Short notes become one memory each, typed from their frontmatter.
+- Files over 1,500 characters become shared documents, each with a `reference` memory.
+- `[[links]]` become relations.
+- Running it again changes nothing.
 
 ## 6. Network and security
 

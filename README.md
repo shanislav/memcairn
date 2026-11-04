@@ -84,6 +84,10 @@ Writes that look like credentials (API keys, tokens, `password=…`) are refused
 that look like an existing one (same words, or same meaning on the same topic) come back as
 candidates to update instead.
 
+**Shared documents** (server inventory, the shared part of `CLAUDE.md`, long plans) are
+versioned on the server and synced to the paths you choose with `memcairn sync`. Edits on
+different machines are merged three-way, and overlapping edits are never overwritten.
+
 `memcairn chronicle "topic"` writes everything memory knows about a topic as a dated
 markdown story, including earlier versions that were replaced. It's documentation
 generated on demand, with nothing to maintain. `memcairn doctor` checks a client's setup

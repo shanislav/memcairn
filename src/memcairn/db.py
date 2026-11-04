@@ -140,6 +140,26 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX call_log_ts ON call_log (ts);
     """,
+    # 5 — shared documents (synced files): every version kept, the merge base for clients
+    """
+    CREATE TABLE document (
+        name       TEXT PRIMARY KEY,
+        version    INTEGER NOT NULL,
+        sha        TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client     TEXT
+    );
+    CREATE TABLE document_version (
+        name       TEXT NOT NULL,
+        version    INTEGER NOT NULL,
+        sha        TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client     TEXT,
+        PRIMARY KEY (name, version)
+    );
+    """,
 ]
 
 

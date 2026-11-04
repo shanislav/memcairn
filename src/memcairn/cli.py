@@ -145,6 +145,19 @@ def import_server_memory(path: Path, scope: str = typer.Option("global"), db: Pa
                    "session with the 'cleanup' prompt (/mcp__memory__cleanup in Claude Code).")
 
 
+@import_app.command("claude-memory")
+def import_claude_memory(
+    folder: Path,
+    scope: str = typer.Option("global"),
+    skip: list[str] = typer.Option(None, help="File name patterns to leave out."),
+    db: Path = DbOpt,
+):
+    """Import a Claude Code memory folder (~/.claude/projects/<project>/memory)."""
+    store = open_store(db)
+    typer.echo(json.dumps(importers.import_claude_memory(store, folder, scope=scope,
+                                                         skip=skip or [])))
+
+
 @app.command()
 def export(path: Path, db: Path = DbOpt):
     """Export everything (except tokens) to JSON."""
@@ -191,6 +204,23 @@ def stats(db: Path = DbOpt, days: int = typer.Option(7, help="Usage window in da
                    ORDER BY id DESC LIMIT 30"""):
             typer.echo(f"{r['ts'][:16]} {r['client'] or '-':<14} {r['hits']:>2} "
                        f"{r['tokens']:>4}  {r['query']}")
+
+
+@app.command()
+def sync(
+    config: Path = typer.Option(None, help="Config file (default ~/.memcairn/sync.toml)."),
+    quiet: bool = typer.Option(False, help="Print only conflicts and errors (for hooks)."),
+):
+    """Sync chosen local files with shared documents on the server (only what changed)."""
+    from . import sync as s
+
+    try:
+        lines = s.run(config or s.DEFAULT_CONFIG)
+    except Exception as e:  # a hook must never break session start
+        lines = [f"error: memcairn sync failed: {e}"]
+    for line in lines:
+        if not quiet or line.startswith(("CONFLICT", "error")):
+            typer.echo(f"memcairn sync: {line}")
 
 
 @app.command()

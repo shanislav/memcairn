@@ -15,7 +15,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp_types import ToolAnnotations
 
-from . import __version__, format
+from . import __version__, docs, format
 from .db import now
 from .store import Conflict, NotFound, Store
 import contextlib
@@ -154,9 +154,13 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
     @mcp.tool(structured_output=False, annotations=READ)
     @safe
     def get(ids: list[str], history: bool = False) -> str:
-        """Full text of memories by id (e.g. m12). history=true adds all versions."""
+        """Full text of memories by id (e.g. m12), or of a shared document (doc:name). history=true adds all versions."""
         out = []
-        for row in store.get(ids):
+        for ref in [i for i in ids if str(i).startswith("doc:")]:
+            d = docs.get_doc(store, str(ref)[4:])
+            out.append(f"doc:{d['name']} v{d['version']} · updated={d['updated_at'][:10]} · "
+                       f"by={d['client'] or '-'} · {len(d['content'])} chars\n{d['content']}")
+        for row in store.get([i for i in ids if not str(i).startswith("doc:")]):
             text = format.memory_full(row)
             if history:
                 text += "\n" + format.history(store.history(row["id"]))
@@ -248,19 +252,58 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         lines = [i.line() for i in items[:n]]
         return CLEANUP_RULES.format(n=len(lines), total=len(items)) + "\n".join(lines)
 
+    async def authorize(request) -> tuple[bool, str | None]:
+        """Bearer check for the plain HTTP routes (MCP itself is covered by the SDK)."""
+        if not auth_url:
+            return True, None
+        header = request.headers.get("authorization", "")
+        token = header[7:] if header.lower().startswith("bearer ") else ""
+        tok = await StoreTokenVerifier(store).verify_token(token) if token else None
+        return (tok is not None), (tok.client_id if tok else None)
+
+    @mcp.custom_route("/docs", methods=["GET"])
+    async def docs_list(request):
+        from starlette.responses import JSONResponse, PlainTextResponse
+
+        ok, _ = await authorize(request)
+        if not ok:
+            return PlainTextResponse("unauthorized", status_code=401)
+        return JSONResponse([dict(r) for r in docs.list_docs(store)])
+
+    @mcp.custom_route("/docs/{name}", methods=["GET", "PUT"])
+    async def docs_item(request):
+        """GET ?version=N, or PUT {"content", "base_version"}: 200, 409 (stale base), 400."""
+        from starlette.responses import JSONResponse, PlainTextResponse
+
+        ok, client_name = await authorize(request)
+        if not ok:
+            return PlainTextResponse("unauthorized", status_code=401)
+        name = request.path_params["name"]
+        try:
+            if request.method == "GET":
+                v = request.query_params.get("version")
+                return JSONResponse(dict(docs.get_doc(store, name, int(v) if v else None)))
+            body = await request.json()
+            row = docs.put_doc(store, name, body["content"], client=client_name,
+                               base_version=int(body.get("base_version", 0)))
+            return JSONResponse({k: row[k] for k in ("name", "version", "sha", "updated_at")})
+        except NotFound as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        except Conflict as e:
+            cur = docs.get_doc(store, name)
+            return JSONResponse({"error": str(e), "version": cur["version"], "sha": cur["sha"]},
+                                status_code=409)
+        except (ValueError, KeyError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
     @mcp.custom_route("/context", methods=["GET"])
     async def context_http(request):
         """Plain-text session-start context for hooks: `curl -H 'Authorization: Bearer …'`."""
         from starlette.responses import PlainTextResponse
 
-        name = None
-        if auth_url:
-            header = request.headers.get("authorization", "")
-            token = header[7:] if header.lower().startswith("bearer ") else ""
-            tok = await StoreTokenVerifier(store).verify_token(token) if token else None
-            if tok is None:
-                return PlainTextResponse("unauthorized", status_code=401)
-            name = tok.client_id
+        ok, name = await authorize(request)
+        if not ok:
+            return PlainTextResponse("unauthorized", status_code=401)
         scope = request.query_params.get("scope")
         if not scope and name:
             row = store.conn.execute(
