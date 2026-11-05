@@ -118,6 +118,29 @@ def register(mcp, store: Store, authorize) -> None:
                                    entity=body.get("entity") or None, client=name)
         return JSONResponse({"memory": _mem(row), "duplicates": [d["id"] for d in dups]})
 
+    async def overview(request, name):
+        from .manage import overview as build_overview
+
+        data = build_overview(store)
+        data["client"] = name
+        return JSONResponse(data)
+
+    async def delete(request, name):
+        from .manage import hard_delete
+
+        body = await request.json() if await request.body() else {}
+        mid = int(request.path_params["id"])
+        if body.get("confirm") != f"m{mid}":
+            return err("permanent delete needs confirm: \"m<id>\"")
+        return JSONResponse({"deleted": hard_delete(store, mid)})
+
+    async def rename(request, name):
+        from .manage import rename_entity
+
+        body = await request.json()
+        moved = rename_entity(store, body.get("from", ""), body.get("to", ""), client=name)
+        return JSONResponse({"moved": moved})
+
     async def documents(request, name):
         return JSONResponse([dict(r) for r in docs.list_docs(store)])
 
@@ -132,6 +155,8 @@ def register(mcp, store: Store, authorize) -> None:
               ("/api/entities", entities, ["GET"]), ("/api/memory", create, ["POST"]),
               ("/api/memory/{id:int}", memory, ["GET", "POST"]),
               ("/api/memory/{id:int}/forget", forget, ["POST"]),
+              ("/api/memory/{id:int}/delete", delete, ["POST"]),
+              ("/api/entity/rename", rename, ["POST"]), ("/api/overview", overview, ["GET"]),
               ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"])]
     for path, fn, methods in routes:
         mcp.custom_route(path, methods=methods)(guarded(fn))

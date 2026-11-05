@@ -338,13 +338,26 @@ it's used.
 ## 5. Managing clients
 
 **In a browser:** open `https://memory.example.com/ui` and enter a client token (create
-one for yourself, e.g. `token add browser`). You can search like the agents do (including
-deep mode and time words), filter by type, entity and todo status, open a fact with its
-version history and the facts it replaced, edit it (or save the change as a new version
-when it changed in reality), forget and restore, add a fact, read shared documents, and
-see the review list and usage stats. Edits are versioned and recorded as that client.
-The token stays in the browser tab unless you tick "remember"; the page itself holds no
-data. It works on a phone too, through the same address as the rest of the server.
+one for yourself, e.g. `token add browser`).
+
+- **Overview** (the start page): how many facts, entities, open todos and documents there
+  are and how much is waiting for cleanup; changes over the last 14 days; how agents use
+  memory (calls, tokens per recall, empty results, sessions started); which machines
+  connected when and how much they wrote; types; the biggest topics; open todos with
+  done/drop buttons; what changed last.
+- **Memory**: search like the agents do (including deep mode and time words), filter by
+  type, entity and todo status. A fact opens with its version history and the facts it
+  replaced: edit it, save the change as a new version when it changed in reality, mark a
+  todo done, forget and restore it, or **delete it permanently** (with its history; you
+  type its id to confirm; this one can't be undone). Add new facts.
+- **Topics**: rename an entity, or merge it into another by renaming it to an existing
+  name (✎ next to it on the overview).
+- **Documents**: read and edit shared documents. Saving makes a new version; machines
+  that sync the document get it at their next session start or end.
+- **Review** and **Stats**: what could be cleaned up, and detailed numbers.
+
+Edits are versioned and recorded as that client. The token stays in the browser tab
+unless you tick "remember"; the page itself holds no data. It works on a phone too.
 
 `memcairn chronicle "FireClu3"` prints everything memory knows about a topic in date
 order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup

@@ -62,3 +62,37 @@ def test_search_edit_forget_through_the_api(http):
     assert ok["memory"]["entity_id"]
     assert {e["name"] for e in http.get("/api/entities", headers=H).json()} >= {"Lumina", "Immich"}
     assert http.get("/api/memory/99999", headers=H).status_code == 404
+
+
+def test_overview_numbers(http):
+    o = http.get("/api/overview", headers=H).json()
+    assert o["stats"]["memories"] == 2 and o["open_todos"] == 1
+    assert o["types"] == {"project": 1, "todo": 1}
+    assert {e["name"] for e in o["top_entities"]} == {"Lumina", "Plex"}
+    assert o["documents"]["count"] == 1 and o["todos"][0]["entity_name"] == "Plex"
+    assert sum(d["n"] for d in o["activity"]) >= 2
+
+
+def test_permanent_delete_takes_the_history_and_needs_confirmation(http):
+    store = http.store
+    old, _ = store.remember("plex on port 32400", entity="Plex")
+    new = store.update(old["id"], content="plex behind nginx on 443", supersede=True)
+    url = f"/api/memory/{new['id']}/delete"
+    assert http.post(url, headers=H, json={}).status_code == 400  # no confirmation
+    assert http.post(url, headers=H, json={"confirm": f"m{new['id']}"}).json()["deleted"] == 2
+    for t, col in (("memory", "id"), ("memory_history", "memory_id")):
+        assert not store.conn.execute(f"SELECT 1 FROM {t} WHERE {col} IN (?, ?)",
+                                      (old["id"], new["id"])).fetchone()
+    assert {h.memory["id"] for h in store.recall("plex nginx").hits}.isdisjoint({old["id"], new["id"]})
+
+
+def test_rename_merges_into_an_existing_entity(http):
+    store = http.store
+    store.remember("immich runs on docker_lan .80", entity="immich")
+    store.remember("Immich library on RAID5", entity="Immich photos")
+    r = http.post("/api/entity/rename", headers=H, json={"from": "Immich photos", "to": "immich"})
+    assert r.json()["moved"] == 1
+    names = {e["name"]: e["facts"] for e in http.get("/api/entities", headers=H).json()}
+    assert names.get("immich") == 2 and "Immich photos" not in names
+    assert http.post("/api/entity/rename", headers=H,
+                     json={"from": "nope", "to": "x"}).status_code == 404

@@ -62,7 +62,25 @@ th { color: var(--muted); font-weight: 500; }
 #gate input { width: 100%; margin: 10px 0; }
 .msg { color: var(--warn); font-size: 14px; min-height: 1.2em; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } header h1 { width: 100%; } }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .n { font-size: 26px; font-weight: 600; line-height: 1.1; }
+.card .l { color: var(--muted); font-size: 13px; }
+.card.click { cursor: pointer; } .card.click:hover { border-color: var(--accent); }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.panel h3 { margin: 0 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.bar-row { display: grid; grid-template-columns: 120px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; margin: 3px 0; }
+.bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .8; }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 70px; }
+.spark div { flex: 1; background: var(--accent); opacity: .75; border-radius: 3px 3px 0 0; min-height: 2px; }
+.spark-l { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
+.mini { font-size: 13px; padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; align-items: baseline; }
+.mini:last-child { border-bottom: 0; }
+.mini .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.linkish { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0 4px; font: inherit; font-size: 12px; }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } header h1 { width: 100%; } .bar-row { grid-template-columns: 90px 1fr 36px; } }
 </style>
 </head>
 <body>
@@ -80,7 +98,8 @@ th { color: var(--muted); font-weight: 500; }
 <header>
   <h1>Memcairn</h1>
   <nav>
-    <button data-tab="memory" class="on">Memory</button>
+    <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="memory">Memory</button>
     <button data-tab="docs">Documents</button>
     <button data-tab="review">Review</button>
     <button data-tab="stats">Stats</button>
@@ -90,7 +109,8 @@ th { color: var(--muted); font-weight: 500; }
   <button class="ghost" id="logout">Sign out</button>
 </header>
 <main>
-  <section data-pane="memory">
+  <section data-pane="overview"><div id="overview"><div class="empty">Loading…</div></div></section>
+  <section data-pane="memory" hidden>
     <div class="bar">
       <input type="search" id="q" placeholder="Search memory (words, a question, 'last week'…)">
       <select id="ftype"><option value="">all types</option></select>
@@ -140,18 +160,96 @@ async function start() {
     $("#who").textContent = `as ${s.client || "?"} · ${s.stats.memories} memories`;
   } catch { return; }
   TYPES.forEach(t => $("#ftype").insertAdjacentHTML("beforeend", `<option>${t}</option>`));
-  api("/api/entities").then(es => $("#ents").innerHTML = es.map(e => `<option value="${esc(e.name)}">${e.facts}</option>`).join(""));
-  search();
+  loadEntities();
+  loadOverview();
 }
+const loadEntities = () => api("/api/entities").then(es => $("#ents").innerHTML = es.map(e => `<option value="${esc(e.name)}">${e.facts}</option>`).join(""));
+
+function showTab(tab) {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x.dataset.tab === tab));
+  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== tab);
+}
+function filterEntity(name) { showTab("memory"); $("#q").value = ""; $("#fent").value = name; search(); }
+function filterTodos() { showTab("memory"); $("#q").value = ""; $("#fent").value = ""; $("#ftype").value = "todo"; $("#fstatus").value = "open"; search(); }
+
+async function setStatus(id, status) {
+  const m = (await api(`/api/memory/${id}`)).memory;
+  await api(`/api/memory/${id}`, { method: "POST", body: JSON.stringify({ status, expected_version: m.version }) });
+}
+
+async function renameEntity(name) {
+  const to = prompt(`Rename entity "${name}" to (an existing name merges them):`, name);
+  if (!to || to === name) return;
+  const r = await api("/api/entity/rename", { method: "POST", body: JSON.stringify({ from: name, to }) });
+  alert(`${r.moved} facts moved to "${to}".`); loadEntities(); loadOverview();
+}
+
+function ago(ts) {
+  if (!ts) return "never";
+  const s = (Date.now() - Date.parse(ts.endsWith("Z") ? ts : ts + "Z")) / 1000;
+  if (s < 90) return "just now"; if (s < 5400) return Math.round(s / 60) + " min ago";
+  if (s < 129600) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " days ago";
+}
+
+async function loadOverview() {
+  const o = await api("/api/overview");
+  const st = o.stats;
+  api("/api/review").then(review => {  // slower (similarity pairs): fill in when ready
+    const el = $("#rvcard"); if (!el) return;
+    el.innerHTML = `<div class="n">${review.length}</div><div class="l">to clean up · ~${review.reduce((a, i) => a + i.saving, 0)} tok</div>`;
+  }).catch(() => {});
+  const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10); days.push(d); }
+  const per = Object.fromEntries(o.activity.map(a => [a.day, a.n])), maxDay = Math.max(1, ...days.map(d => per[d] || 0));
+  const maxType = Math.max(1, ...Object.values(o.types)), maxEnt = Math.max(1, ...o.top_entities.map(e => e.facts));
+  const u = o.usage, recall = u.recall || {}, hook = u["session-hook"] || {};
+  const calls = Object.values(u).reduce((a, x) => a + x.calls, 0);
+  $("#overview").innerHTML = `
+  <div class="cards">
+    <div class="card click" data-go="memory"><div class="n">${st.memories}</div><div class="l">facts</div></div>
+    <div class="card"><div class="n">${st.entities}</div><div class="l">entities</div></div>
+    <div class="card click" data-go="todos"><div class="n">${o.open_todos}</div><div class="l">open todos</div></div>
+    <div class="card click" data-go="docs"><div class="n">${o.documents.count}</div><div class="l">documents · ${o.documents.chars < 1000 ? o.documents.chars + " chars" : Math.round(o.documents.chars / 1000) + "k chars"}</div></div>
+    <div class="card click" data-go="review" id="rvcard"><div class="n">…</div><div class="l">to clean up</div></div>
+    <div class="card"><div class="n">${st.superseded + st.forgotten}</div><div class="l">in history (replaced/forgotten)</div></div>
+  </div>
+  <div class="panels">
+    <div class="panel"><h3>Changes, last 14 days</h3>
+      <div class="spark">${days.map(d => `<div title="${d}: ${per[d] || 0}" style="height:${100 * (per[d] || 0) / maxDay}%"></div>`).join("")}</div>
+      <div class="spark-l"><span>${days[0].slice(5)}</span><span>${days.reduce((a, d) => a + (per[d] || 0), 0)} writes</span><span>today</span></div></div>
+    <div class="panel"><h3>How agents use it, last 7 days</h3>
+      <div class="mini"><span class="t">tool calls</span><b>${calls}</b></div>
+      <div class="mini"><span class="t">recall: calls · avg tokens · empty</span><b>${recall.calls || 0} · ${recall.avg_tokens || 0} · ${recall.empty || 0}</b></div>
+      <div class="mini"><span class="t">sessions started (overview injected)</span><b>${hook.calls || 0}</b></div>
+      <div class="mini"><span class="t">facts written</span><b>${(u.remember || {}).calls || 0}</b></div></div>
+    <div class="panel"><h3>Machines and clients</h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span></div>`).join("")}</div>
+    <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="bar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
+    <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="bar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
+    <div class="panel"><h3>Open todos <button class="linkish" data-go="todos">all ${o.open_todos}</button></h3>${o.todos.map(t => `<div class="mini"><span class="t" data-id="${t.id}" title="${esc(t.content)}">${esc(t.content)}</span><button class="linkish" data-done="${t.id}">done</button><button class="linkish" data-drop="${t.id}">drop</button></div>`).join("") || '<div class="meta">none</div>'}</div>
+    <div class="panel"><h3>Recently changed</h3>${o.recent.map(m => `<div class="mini"><span class="chip">${esc(m.type)}</span><span class="t" data-id="${m.id}" title="${esc(m.content)}">${esc(m.content)}</span><span class="meta">${ago(m.updated_at)}</span></div>`).join("")}</div>
+  </div>`;
+}
+
+$("#overview").onclick = async e => {
+  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-done],[data-drop],[data-id]"); if (!t) return;
+  const d = t.dataset;
+  try {
+    if (d.go === "memory") { showTab("memory"); search(); }
+    else if (d.go === "todos") filterTodos();
+    else if (d.go) { showTab(d.go); ({ docs: loadDocs, review: loadReview })[d.go](); }
+    else if (d.ent) filterEntity(d.ent);
+    else if (d.rename) await renameEntity(d.rename);
+    else if (d.done || d.drop) { await setStatus(+(d.done || d.drop), d.done ? "done" : "dropped"); loadOverview(); }
+    else if (d.id) openMemory(+d.id);
+  } catch (err) { alert(err.message); }
+};
 
 $("#enter").onclick = () => { token = $("#tok").value.trim(); if (!token) return; store.set(token, $("#keep").checked); start(); };
 $("#tok").onkeydown = e => { if (e.key === "Enter") $("#enter").click(); };
 $("#logout").onclick = () => { store.clear(); token = null; showGate(); };
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
-  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
-  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
-  ({ docs: loadDocs, review: loadReview, stats: loadStats })[b.dataset.tab]?.();
+  showTab(b.dataset.tab);
+  ({ overview: loadOverview, memory: search, docs: loadDocs, review: loadReview, stats: loadStats })[b.dataset.tab]?.();
 });
 
 let timer;
@@ -209,7 +307,9 @@ async function openMemory(id) {
     <div class="row">
       <button class="act" id="save">Save (edit)</button>
       <button class="ghost" id="supersede" title="the fact changed in reality: keep the old one as history">Save as new version</button>
-      <button class="ghost danger" id="forget">${gone ? "Restore" : "Forget"}</button>
+      ${m.type === "todo" && m.status === "open" ? '<button class="ghost" id="done">Mark done</button>' : ""}
+      <button class="ghost danger" id="forget" title="hide it; can be restored">${gone ? "Restore" : "Forget"}</button>
+      <button class="ghost danger" id="purge" title="delete with all versions; cannot be undone">Delete permanently</button>
     </div>
     <div class="msg" id="dmsg"></div>
     <div class="hist"><b>History</b>${d.history.map(h => `<div><span class="meta">v${h.version} · ${esc(h.at.slice(0,16))} · ${esc(h.op)} · by ${esc(h.by || "-")}</span>\n${esc(h.content)}</div>`).join("")}
@@ -228,6 +328,13 @@ async function openMemory(id) {
   $("#forget").onclick = () => run(async () => {
     if (!gone && !confirm(`Forget m${id}? (it can be restored)`)) return;
     await api(`/api/memory/${id}/forget`, { method: "POST", body: JSON.stringify({ undo: gone }) }); openMemory(id);
+  });
+  if ($("#done")) $("#done").onclick = () => run(async () => { await setStatus(id, "done"); openMemory(id); });
+  $("#purge").onclick = () => run(async () => {
+    const typed = prompt(`Delete m${id} permanently, with all its versions and the facts it replaced? This cannot be undone.\nType m${id} to confirm:`);
+    if (typed !== `m${id}`) return;
+    const r = await api(`/api/memory/${id}/delete`, { method: "POST", body: JSON.stringify({ confirm: `m${id}` }) });
+    close(); alert(`Deleted ${r.deleted} row(s).`); loadEntities();
   });
 }
 
@@ -259,9 +366,22 @@ async function openDocPart(name, anchor) {
   const res = await fetch(`/docs/${encodeURIComponent(name)}`, { headers: { "Authorization": "Bearer " + token } });
   const d = await res.json();
   $("#detail").innerHTML = `<div class="row" style="justify-content:space-between;margin:0"><h2>${esc(name)} · v${d.version}</h2><button class="ghost" id="x">Close</button></div>
-    <p class="meta">Edit shared documents where they live (the synced file); this view is read-only.</p><pre id="doctext">${esc(d.content)}</pre>`;
+    <p class="meta">Saving creates version ${d.version + 1}; machines that sync this document get it at their next session start or end.</p>
+    <textarea id="doctext" spellcheck="false" style="min-height:60vh;font:13px/1.4 ui-monospace,Consolas,monospace">${esc(d.content)}</textarea>
+    <div class="row"><button class="act" id="docsave">Save</button></div><div class="msg" id="dmsg"></div>`;
   $("#detail").classList.add("open"); $("#x").onclick = close;
-  if (anchor) { /* scroll near the part: first occurrence of its first words */ }
+  if (anchor) {  // jump to the part that was found
+    const ta = $("#doctext"), probe = (anchor.split("-")[0] || "").toLowerCase(), at = ta.value.toLowerCase().indexOf(probe);
+    if (at > 0) { ta.focus(); ta.setSelectionRange(at, at); ta.scrollTop = Math.max(0, ta.value.slice(0, at).split("\n").length - 3) * 18; }
+  }
+  $("#docsave").onclick = async () => {
+    const r = await fetch(`/docs/${encodeURIComponent(name)}`, { method: "PUT", headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ content: $("#doctext").value, base_version: d.version }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409) { $("#dmsg").textContent = `Changed meanwhile (now v${j.version}). Copy your edit, reopen and apply it again.`; return; }
+    if (!r.ok) { $("#dmsg").textContent = j.error || r.statusText; return; }
+    openDocPart(name); loadDocs();
+  };
 }
 
 async function loadReview() {
