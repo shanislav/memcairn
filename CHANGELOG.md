@@ -24,7 +24,8 @@ clients: one SQLite file, one process, light on tokens (tool list ~900 tokens, a
   semantic search (no LLM, no external API; ~0.6 GB of memory, optional).
 - Writes: short atomic facts, every version kept, supersede chains, duplicate candidates,
   todos with done/dropped, credentials refused.
-- Session start: a ranked overview (pinned facts, open todos, most useful facts).
+- Session start: a brief overview (~200 tokens: topics and documents memory covers,
+  pinned facts, open todo count); `mode=full` adds ranked facts.
 - Shared documents, searchable part by part, synced to files with three-way merge;
   optional sharing of Claude Code's auto memory between your machines.
 

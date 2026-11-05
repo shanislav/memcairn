@@ -129,7 +129,7 @@ The plugin adds only:
 | What | Cost |
 |---|---|
 | MCP server `memory` (tools `mcp__plugin_memcairn_memory__recall`, …), usage rules in its MCP instructions | ~900 tokens of tool list + ~480 of rules per session |
-| `SessionStart` hook: `curl` of `/context` (pinned facts, open todos, top facts); 3 s limit, prints nothing on error | up to ~900 tokens per session |
+| `SessionStart` hook: `curl` of `/context` (topics, documents, pinned facts, open todo count); 3 s limit, prints nothing on error | ~200 tokens per session, plus pinned facts |
 | `/memcairn:recall <query>`, `/memcairn:remember <fact>` | 0 (manual only, never shown to the model) |
 | `/mcp__plugin_memcairn_memory__cleanup` (MCP prompt) | 0 until you run it |
 
@@ -275,18 +275,21 @@ runs it at the start of every session and adds its output to the context, so the
 arrives without the model having to call a tool. The hook prints the server's plain-text
 `GET /context` (`memcairn context`, or `curl -sf -m 3 -H "Authorization: Bearer <token>"
 https://memory.example.com/context`). If the server is unreachable it prints nothing and
-the session starts normally. `?max_tokens=…` changes the budget (default 900),
-`?scope=project:x` the scope.
+the session starts normally.
 
-What goes in, best first:
-1. pinned facts (`remember(..., pinned=true)` or `update(id, pinned=true)`);
-2. open todos;
-3. everything else, ranked by type (feedback and user preferences first, plain facts
-   last), importance and how often a fact was actually used.
+What goes in (~200 tokens plus your pinned facts):
+1. how much memory holds, and the names of the biggest topics and the shared documents
+   (capped, "+N more"): this is what makes the agent recall when a topic comes up;
+2. pinned facts in full (`remember(..., pinned=true)` or `update(id, pinned=true)`), for
+   rules that must apply in every session; keep them few;
+3. the number of open todos.
 
-A fact ages only when its topic gets newer writes. A project you haven't touched for a
-year doesn't fade from memory. At most two facts per entity make it in, so one busy topic
-can't crowd out the rest.
+`?mode=full` (or `memcairn context --full`) also lists five open todos and the best
+other facts, ranked by type (feedback and preferences first), importance and use, at most
+two per topic, ~900 tokens. Facts picked before the task is known are rarely the ones it
+needs, so the brief overview is the default. `?max_tokens=…` changes the budget,
+`?scope=project:x` the scope. A fact ages only when its topic gets newer writes, so a
+project you haven't touched for a year doesn't fade.
 
 ### Todos
 

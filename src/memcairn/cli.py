@@ -527,7 +527,9 @@ def ui(db: Path = DbOpt, port: int = typer.Option(0, help="Port; 0 picks a free 
 
 
 @app.command()
-def context(db: Path = DbOpt):
+def context(db: Path = DbOpt,
+            full: bool = typer.Option(False, "--full", help="Also the ranked top facts (~900 "
+                                      "tokens) instead of the brief overview (~200).")):
     """Print the memory overview (for a session-start hook); silent when unreachable."""
     from .client import auth
 
@@ -536,7 +538,7 @@ def context(db: Path = DbOpt):
         if url:
             import urllib.request
 
-            req = urllib.request.Request(f"{url}/context",
+            req = urllib.request.Request(f"{url}/context" + ("?mode=full" if full else ""),
                                          headers={"Authorization": f"Bearer {token}"})
             with urllib.request.urlopen(req, timeout=3) as r:
                 typer.echo(r.read().decode())
@@ -544,9 +546,12 @@ def context(db: Path = DbOpt):
             from . import format
 
             store = open_store(db, vectors=False)
-            hits = store.context("global", max_todos=5)
-            typer.echo(format.session_overview(hits, max_tokens=900,
-                                               todos_left=store.todos_left))
+            if full:
+                hits = store.context("global", max_todos=5)
+                typer.echo(format.session_overview(hits, max_tokens=900,
+                                                   todos_left=store.todos_left))
+            else:
+                typer.echo(format.brief_overview(store, "global"))
     except Exception:  # never block a session start
         pass
 

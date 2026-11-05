@@ -173,10 +173,9 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
 
     @mcp.tool(structured_output=False, annotations=READ)
     @safe
-    def context(max_tokens: int = 900, scope: str | None = None) -> str:
-        """Core memory for session start: pinned rules, open todos, top facts."""
-        hits = store.context(default_scope(scope), max_todos=5)
-        return format.context(hits, max_tokens=max_tokens, todos_left=store.todos_left)
+    def context(max_tokens: int = 400, scope: str | None = None) -> str:
+        """Session start: what memory covers (topics, documents), pinned rules, todo count."""
+        return format.brief_overview(store, default_scope(scope), max_tokens=max_tokens)
 
     @mcp.tool(structured_output=False, annotations=WRITE)
     @safe
@@ -356,13 +355,18 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             row = store.conn.execute(
                 "SELECT default_scope FROM client WHERE name = ?", (name,)).fetchone()
             scope = row["default_scope"] if row else None
+        full = request.query_params.get("mode") == "full"  # brief by default
         try:
-            budget = min(int(request.query_params.get("max_tokens", 900)), 2000)
+            budget = min(int(request.query_params.get("max_tokens", 900 if full else 400)), 2000)
         except ValueError:
-            budget = 900
+            budget = 900 if full else 400
         t0 = time.perf_counter()
-        hits = store.context(scope or "global", max_todos=5)
-        text = format.session_overview(hits, max_tokens=budget, todos_left=store.todos_left)
+        if full:
+            hits = store.context(scope or "global", max_todos=5)
+            text = format.session_overview(hits, max_tokens=budget,
+                                           todos_left=store.todos_left)
+        else:
+            text = format.brief_overview(store, scope or "global", max_tokens=budget)
         with contextlib.suppress(Exception):
             store.log_call(client=name, tool="session-hook", query=scope,
                            tokens=format.tokens(text), hits=len(HIT_LINE.findall(text)),

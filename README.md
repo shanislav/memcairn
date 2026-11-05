@@ -38,11 +38,12 @@ memcairn pair https://memory.example.com K7QM-42XD    # code from "Add machine"
 
 ## What you get
 
-- **A short overview at every session start** (pinned facts, open todos, the most used
-  facts; ~900 tokens at most) and a `recall` tool for the rest.
-- **Small context cost.** About 2,300 tokens per session in all: the tool list (~900),
-  the usage rules (~480) and the overview (~900 at most). A recall returns five one-line
-  hits (~200 tokens), full text only for what the model asks for.
+- **A short overview at every session start**: what memory covers (topics, documents),
+  the facts you pinned and how many todos are open, ~200 tokens plus your pinned facts.
+  Claude then recalls what the task needs.
+- **Small context cost.** About 1,600 tokens per session in all: the tool list (~900),
+  the usage rules (~480) and the overview (~200). A recall returns five one-line hits
+  (~200 tokens), full text only for what the model asks for.
 - **Writes are instant**: no LLM call when storing.
 - **Nothing is lost silently**: every change is versioned, outdated facts are superseded
   rather than overwritten, todos are closed as done or dropped.

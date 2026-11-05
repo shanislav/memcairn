@@ -117,9 +117,58 @@ def context(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
 
 
 def session_overview(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
-    """What a session-start hook injects: the intro line plus context(), within max_tokens."""
+    """The full overview (mode=full): intro line plus context(), within max_tokens."""
     return SESSION_INTRO + "\n" + context(hits, max_tokens=max_tokens - tokens(SESSION_INTRO),
                                           todos_left=todos_left)
+
+
+BRIEF_INTRO = ("Long-term memory (Memcairn) is connected. Before answering about a topic below "
+               "from scratch, recall it; full text with get.")
+
+
+def brief_overview(store, scope: str | None = None, *, max_tokens: int = 400) -> str:
+    """The default session-start overview (~200 tokens): what memory covers, so the agent
+    knows when to recall, plus the pinned facts that must apply in every session. Ranked
+    facts are left to recall: picked without knowing the task, they are rarely the ones
+    needed (mode=full still lists them)."""
+    hits = store.context(scope, max_todos=0)
+    pinned = [h for h in hits if h.memory["pinned"]]
+    chain = store.scope_chain(scope)
+    marks = ",".join("?" * len(chain))
+    facts, todos = store.conn.execute(
+        f"""SELECT count(*), sum(type = 'todo' AND (status IS NULL OR status = 'open'))
+            FROM memory WHERE deleted_at IS NULL AND superseded_by IS NULL
+            AND scope_id IN ({marks})""", chain).fetchone()
+    if not facts:
+        return BRIEF_INTRO + "\nmemory is empty for this scope"
+    topics = sorted((e for e in store.entities(scope) if e["facts"]),
+                    key=lambda e: (-e["facts"], e["name"].lower()))
+    docs = [r["name"] for r in store.conn.execute(
+        "SELECT name FROM document WHERE name NOT LIKE 'automemory.%' ORDER BY updated_at DESC")]
+    head = [BRIEF_INTRO, HEADER,
+            f"{facts} facts on {len(topics)} topics, {len(docs)} shared documents."]
+    tail = [hit_line(h, limit=420) for h in pinned]
+    if todos:
+        tail.append(f"{todos} open todos (recall with type=todo)")
+    room = max_tokens - sum(tokens(x) + 1 for x in head + tail)
+
+    def listing(label: str, names: list[str], room: int) -> tuple[str, int]:
+        line = f"{label}: "
+        for i, name in enumerate(names):
+            more = f", +{len(names) - i} more" if i else ""
+            if tokens(line + name + more) + 1 > room:
+                return line.rstrip(", ") + more, room - tokens(line) - 1
+            line += name + ", "
+        return line.rstrip(", "), room - tokens(line) - 1
+
+    lines = head  # topic and document names are cues for recall: cap them, keep both
+    if topics and room > 20:
+        line, _ = listing("Topics", [e["name"] for e in topics], min(110, room - 30))
+        lines.append(line)
+        room -= tokens(line) + 1
+    if docs and room > 10:
+        lines.append(listing("Documents", docs, min(45, room))[0])
+    return "\n".join(lines + tail)
 
 
 def memory_full(row: sqlite3.Row) -> str:

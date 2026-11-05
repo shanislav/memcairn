@@ -26,8 +26,10 @@ its place:
 
 - seven tools with one-line descriptions and compacted schemas (~900 tokens, paid every
   turn); the usage rules travel once per session as MCP instructions;
-- session start: a ranked overview capped at ~900 tokens, injected by a hook, so it
-  doesn't depend on the model remembering to call a tool;
+- session start: a brief overview injected by a hook (~200 tokens: the topics and
+  documents memory covers, pinned facts, the number of open todos), so the model knows
+  when to recall without having to remember to call a tool. Ranked facts picked before
+  the task is known were rarely the ones needed; `?mode=full` still lists them;
 - `recall` returns five one-line hits (`m<id> · type · entity · snippet`); full text only
   through `get` for the ids the agent needs; documents are returned part by part;
 - plain text, not JSON; every call is logged with its size, so `memcairn stats` shows
@@ -87,9 +89,10 @@ memory, read memory-mapped; finds facts in another language or with no shared wo
 more. It is not the default because on the benchmark, vectors in every recall made
 results slightly worse: semantic search always finds *something*.
 
-**Session context** ranks pinned facts first, then open todos (five at most, the rest
-counted), then the remaining facts by type (feedback and preferences before plain facts),
-importance and use, at most two per entity so one busy topic can't crowd out the rest.
+**Session context**: the brief overview lists the biggest topics and the shared documents
+(names only, capped), pinned facts in full and the number of open todos. With
+`mode=full` it also ranks the remaining facts by type (feedback and preferences before
+plain facts), importance and use, at most two per entity, and lists five open todos.
 
 ## Writes
 

@@ -111,3 +111,23 @@ def test_session_overview_stays_within_its_budget(tmp_path):
         text = format.session_overview(hits, max_tokens=budget, todos_left=store.todos_left)
         assert format.tokens(text) <= budget, budget
         assert text.startswith(format.SESSION_INTRO) and "older open todos" in text
+
+
+def test_brief_overview_names_topics_and_pinned_but_no_ranked_facts(tmp_path):
+    from memcairn import docs, format
+
+    store = Store(connect(tmp_path / "m.db"))
+    for i in range(40):
+        store.remember(f"fact {i} about the setup", entity=f"Topic{i:02d}")
+    store.remember("never touch the company servers", entity="Rules", pinned=True)
+    store.remember("renew the certificate", type="todo")
+    docs.put_doc(store, "servers", "# Servers\n", base_version=0)
+    docs.put_doc(store, "automemory.memory", "# rules\n", base_version=0)
+    text = format.brief_overview(store, "global")
+    assert "42 facts on 41 topics, 1 shared documents" in text  # the todo has no topic
+    assert "Topics: Rules, Topic00" in text and "more" in text  # biggest first, capped
+    assert "Documents: servers" in text and "automemory" not in text
+    assert "never touch the company servers" in text and "1 open todos" in text
+    assert "fact 1 about" not in text  # ranked facts are left to recall
+    assert format.tokens(text) <= 400
+    assert "memory is empty" in format.brief_overview(Store(connect(tmp_path / "e.db")))
