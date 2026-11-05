@@ -111,3 +111,22 @@ def test_list_is_newest_noted_first_or_recently_changed(http):
                                                headers=H).json()["items"]]
     assert noted.index("noted later") < noted.index("noted long ago, cleaned today")
     assert changed[0] == "noted long ago, cleaned today"
+
+
+def test_revoke_a_client_needs_its_name_and_cuts_it_off(http):
+    with http.store.lock:
+        http.store.conn.execute("INSERT INTO client (name, token_hash, created_at) VALUES "
+                                "('laptop', ?, '2026-01-01T00:00:00Z')", (hash_token("mcn_lap"),))
+    lap = {"Authorization": "Bearer mcn_lap"}
+    assert http.get("/api/stats", headers=lap).status_code == 200
+    assert http.post("/api/client/laptop/revoke", json={}, headers=H).status_code == 400
+    r = http.post("/api/client/laptop/revoke", json={"confirm": "laptop"}, headers=H).json()
+    assert r == {"revoked": "laptop", "self": False}
+    assert http.get("/api/stats", headers=lap).status_code == 401
+    assert http.post("/api/client/laptop/revoke", json={"confirm": "laptop"},
+                     headers=H).status_code == 404
+    names = [c["name"] for c in http.get("/api/overview", headers=H).json()["clients"]]
+    assert "laptop" not in names
+    assert http.post("/api/client/browser/revoke", json={"confirm": "browser"},
+                     headers=H).json()["self"] is True
+    assert http.get("/api/stats", headers=H).status_code == 401

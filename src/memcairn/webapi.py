@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from . import docs
+from .db import now
 from .store import Conflict, NotFound, Store
 
 UI = Path(__file__).with_name("ui.html")
@@ -143,6 +144,19 @@ def register(mcp, store: Store, authorize) -> None:
         moved = rename_entity(store, body.get("from", ""), body.get("to", ""), client=name)
         return JSONResponse({"moved": moved})
 
+    async def revoke(request, name):
+        body = await request.json() if await request.body() else {}
+        target = request.path_params["name"]
+        if body.get("confirm") != target:
+            return err("revoking needs confirm: \"<client name>\"")
+        with store._tx():
+            n = store.conn.execute(
+                "UPDATE client SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL",
+                (now(), target)).rowcount
+        if not n:
+            return err(f"no active client {target!r}", 404)
+        return JSONResponse({"revoked": target, "self": target == name})
+
     async def documents(request, name):
         return JSONResponse([dict(r) for r in docs.list_docs(store)])
 
@@ -158,7 +172,8 @@ def register(mcp, store: Store, authorize) -> None:
               ("/api/memory/{id:int}", memory, ["GET", "POST"]),
               ("/api/memory/{id:int}/forget", forget, ["POST"]),
               ("/api/memory/{id:int}/delete", delete, ["POST"]),
-              ("/api/entity/rename", rename, ["POST"]), ("/api/overview", overview, ["GET"]),
+              ("/api/entity/rename", rename, ["POST"]),
+              ("/api/client/{name}/revoke", revoke, ["POST"]), ("/api/overview", overview, ["GET"]),
               ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"])]
     for path, fn, methods in routes:
         mcp.custom_route(path, methods=methods)(guarded(fn))

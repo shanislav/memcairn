@@ -184,6 +184,15 @@ async function renameEntity(name) {
   alert(`${r.moved} facts moved to "${to}".`); loadEntities(); loadOverview();
 }
 
+async function revokeClient(name, me) {
+  const warn = name === me ? "\nThis is the token you are using now: the page logs out." : "";
+  const typed = prompt(`Revoke "${name}"? Every agent and OAuth connection using it loses access at once.${warn}\nCreate a new one with: memcairn token add <name>\nType ${name} to confirm:`);
+  if (typed !== name) return;
+  const r = await api(`/api/client/${encodeURIComponent(name)}/revoke`, { method: "POST", body: JSON.stringify({ confirm: name }) });
+  if (r.self) { store.clear(); token = null; showGate(); return; }
+  loadOverview();
+}
+
 function ago(ts) {
   if (!ts) return "never";
   const s = (Date.now() - Date.parse(ts.endsWith("Z") ? ts : ts + "Z")) / 1000;
@@ -191,8 +200,9 @@ function ago(ts) {
   if (s < 129600) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " days ago";
 }
 
+let me = null;
 async function loadOverview() {
-  const o = await api("/api/overview");
+  const o = await api("/api/overview"); me = o.client;
   const st = o.stats;
   api("/api/review").then(review => {  // slower (similarity pairs): fill in when ready
     const el = $("#rvcard"); if (!el) return;
@@ -221,7 +231,7 @@ async function loadOverview() {
       <div class="mini"><span class="t">recall: calls · avg tokens · empty</span><b>${recall.calls || 0} · ${recall.avg_tokens || 0} · ${recall.empty || 0}</b></div>
       <div class="mini"><span class="t">sessions started (overview injected)</span><b>${hook.calls || 0}</b></div>
       <div class="mini"><span class="t">facts written</span><b>${(u.remember || {}).calls || 0}</b></div></div>
-    <div class="panel"><h3>Machines and clients</h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span></div>`).join("")}</div>
+    <div class="panel"><h3>Machines and clients</h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span><button class="linkish" data-revoke="${esc(c.name)}" title="revoke this token and its OAuth sessions">revoke</button></div>`).join("")}</div>
     <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="hbar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
     <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="hbar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
     <div class="panel"><h3>Open todos <button class="linkish" data-go="todos">all ${o.open_todos}</button></h3>${o.todos.map(t => `<div class="mini"><span class="t" data-id="${t.id}" title="${esc(t.content)}">${esc(t.content)}</span><button class="linkish" data-done="${t.id}">done</button><button class="linkish" data-drop="${t.id}">drop</button></div>`).join("") || '<div class="meta">none</div>'}</div>
@@ -233,7 +243,7 @@ async function loadOverview() {
 }
 
 $("#overview").onclick = async e => {
-  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-done],[data-drop],[data-id]"); if (!t) return;
+  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-done],[data-drop],[data-id]"); if (!t) return;
   const d = t.dataset;
   try {
     if (d.go === "memory") { showTab("memory"); search(); }
@@ -241,6 +251,7 @@ $("#overview").onclick = async e => {
     else if (d.go) { showTab(d.go); ({ docs: loadDocs, review: loadReview })[d.go](); }
     else if (d.ent) filterEntity(d.ent);
     else if (d.rename) await renameEntity(d.rename);
+    else if (d.revoke) await revokeClient(d.revoke, me);
     else if (d.done || d.drop) { await setStatus(+(d.done || d.drop), d.done ? "done" : "dropped"); loadOverview(); }
     else if (d.id) openMemory(+d.id);
   } catch (err) { alert(err.message); }
