@@ -9,8 +9,10 @@ services:
     image: ghcr.io/shanislav/memcairn:latest   # or build it from a clone: `build: .`
     restart: unless-stopped
     stop_grace_period: 30s
-    environment:
+    environment:  # set these in .env next to this file
       MEMCAIRN_PUBLIC_URL: ${MEMCAIRN_PUBLIC_URL:-http://localhost:8765}
+      MEMCAIRN_OAUTH: ${MEMCAIRN_OAUTH:-0}          # 1: claude.ai and the Claude apps
+      MEMCAIRN_EMBED_MODEL: ${MEMCAIRN_EMBED_MODEL:-minishlab/potion-multilingual-128M}  # none: basic search only
     volumes:
       - ./data:/data
     ports:

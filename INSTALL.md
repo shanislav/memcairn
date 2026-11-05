@@ -52,10 +52,24 @@ Open a new terminal afterwards (or use the full path uv printed) so `uv` is foun
 - **Several computers or the phone**: it needs a small server. Ask whether they already
   run a Memcairn server. Yes: go to 3C. No: go to 3B.
 
+### Ask: full or basic search?
+
+Ask this before installing (3A or 3B), in a sentence or two:
+
+> "Memcairn finds things by their words. It can also find them by meaning (other words,
+> another language) with a small model that runs on this machine: about 0.5 GB of disk
+> and 0.6 GB of memory while in use. Without it, it needs about 0.1 GB of memory and
+> searches by words only. On a normal computer or server keep it; on a Raspberry Pi or a
+> small VPS you may want to save the space."
+
+Full search is the default. For basic search: locally, install without `[vector]`; on a
+server, add `MEMCAIRN_EMBED_MODEL=none` to `.env`. Either can be changed later.
+
 ## 3A. Only this computer
 
 ```bash
-uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
+uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"   # full
+uv tool install git+https://github.com/shanislav/memcairn                       # basic
 memcairn connect --local
 ```
 
@@ -92,10 +106,12 @@ mkdir memcairn && cd memcairn
 curl -fsSLO https://raw.githubusercontent.com/shanislav/memcairn/main/compose.yml
 mkdir -p data && sudo chown 10001 data         # the container runs as uid 10001
 echo "MEMCAIRN_PUBLIC_URL=https://memory.example.com" > .env   # the address clients use
+# basic search only (see above): echo "MEMCAIRN_EMBED_MODEL=none" >> .env
 docker compose up -d
 ```
 
-The image (`ghcr.io/shanislav/memcairn`, amd64 and arm64) is pulled from GitHub.
+The image (`ghcr.io/shanislav/memcairn`, amd64 and arm64) is pulled from GitHub. The
+search model is downloaded on first use into `data/models`.
 
 - `MEMCAIRN_PUBLIC_URL` must be exactly the address the clients will use (scheme and
   host). It also turns on authentication.

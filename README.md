@@ -1,5 +1,7 @@
 # Memcairn
 
+![Memcairn: self-hosted long-term memory for Claude, shared by all your machines](docs/banner.jpeg)
+
 Long-term memory for Claude Code (and other MCP clients) that you host yourself, shared by
 all your machines.
 
@@ -49,8 +51,8 @@ memcairn pair https://memory.example.com K7QM-42XD    # code from "Add machine"
 - **A web UI** to browse, search, edit and clean up memory, add machines and revoke them.
 - **claude.ai and the Claude apps** through a built-in OAuth server (opt-in).
 - **Credentials are refused** on write; `memcairn purge` removes a leaked one for good.
-- **One SQLite file.** Semantic search runs locally on the CPU; nothing goes to an
-  external service.
+- **One SQLite file, no LLM.** Search by meaning uses a small local model (~0.6 GB of
+  memory, optional: without it ~0.1 GB, words only); nothing goes to an external service.
 
 ## How well it finds things
 

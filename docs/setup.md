@@ -376,16 +376,28 @@ facts that share no words with the query, including facts in another language. N
 recall stays full-text only, which is cheaper and more precise when words do match, and
 it says `low confidence — try mode=deep` when they don't.
 
-- The model runs on the CPU. Nothing is sent to an external API.
-- It is downloaded on first start into `MEMCAIRN_MODEL_DIR` (`/data/models` in Docker,
-  `~/.memcairn/models` otherwise).
+- The model runs on the CPU. Nothing is sent to an external API. It is not an LLM: it
+  turns text into vectors and generates nothing.
+- It is downloaded on first use into `MEMCAIRN_MODEL_DIR` (`/data/models` in Docker,
+  `~/.memcairn/models` otherwise) and loaded when first needed.
 - Existing memories are embedded in the background after start. New ones are embedded
   as they are written.
 
+| | full search (default) | basic search (`none`) |
+|---|---|---|
+| finds facts with other words or in another language | yes, in deep mode | no |
+| disk | ~0.5 GB (the model) | – |
+| memory | ~0.6 GB while the model is loaded | ~0.1 GB |
+
 | Variable | Default | |
 |---|---|---|
-| `MEMCAIRN_EMBED_MODEL` | `minishlab/potion-multilingual-128M` (static model: ~0.5 GB, embeds 1,000 facts in under a second) | any [fastembed](https://github.com/qdrant/fastembed) text model; `none` disables semantic search |
+| `MEMCAIRN_EMBED_MODEL` | `minishlab/potion-multilingual-128M` (a static model: embeds 1,000 facts in under a second) | any [fastembed](https://github.com/qdrant/fastembed) text model; `none` turns semantic search off (deep mode then widens full-text search instead) |
 | `MEMCAIRN_MODEL_DIR` | see above | model cache |
+
+Static models like the default are read memory-mapped from the downloaded file, so they
+take about half the memory they would through fastembed, with the same vectors. In Docker,
+set the variables in `.env` next to `compose.yml`; a local install without the `[vector]`
+extra has basic search only.
 
 Plain recall also knows a few groups of words that name the same thing (`ilo bmc ipmi
 idrac`, `záloha backup`, `nasadiť deploy`, `heslo password`, …), so "storage1 ilo" finds a

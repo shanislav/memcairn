@@ -81,8 +81,9 @@ scanner refuses the write.
 6. Up to two document parts (one per document) are added next to the facts.
 
 **Deep mode** (`mode="deep"`, same tool) adds semantic similarity from a local embedding
-model (`potion-multilingual-128M` by default, CPU, ~0.5 GB; finds facts in another
-language or with no shared words), includes superseded and expired facts, and returns
+model (`potion-multilingual-128M` by default, CPU, ~0.5 GB on disk and ~0.6 GB in
+memory, read memory-mapped; finds facts in another language or with no shared words;
+`MEMCAIRN_EMBED_MODEL=none` leaves basic search at ~0.1 GB), includes superseded and expired facts, and returns
 more. It is not the default because on the benchmark, vectors in every recall made
 results slightly worse: semantic search always finds *something*.
 
