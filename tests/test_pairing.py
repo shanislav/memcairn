@@ -202,3 +202,18 @@ def test_sessions_renew_on_use(http):
     left = http.store.conn.execute("SELECT expires_at FROM oauth_token WHERE client_id = "
                                    "'web-ui'").fetchone()[0] - time.time()
     assert left > 29 * 86400
+
+
+def test_pair_next_to_the_plugin_writes_the_entry_but_no_second_hook(tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"enabledPlugins": {"memcairn@memcairn": True}}), encoding="utf-8")
+
+    def opener(req, timeout):
+        return _Resp(json.dumps({"name": "pc", "token": "mcn_new", "url": "x"}).encode())
+
+    pair(home, "https://mem.example", "K7QM-42XD", lambda s: None, opener=opener)
+    assert json.loads((home / ".claude.json").read_text())["mcpServers"]["memory"]["url"] \
+        == "https://mem.example/mcp"  # wins over the plugin and a claude.ai connector
+    assert "hooks" not in json.loads((home / ".claude" / "settings.json").read_text())

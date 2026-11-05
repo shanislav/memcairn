@@ -95,8 +95,14 @@ def check_configs(home: Path, cwd: Path, name: str = "memory") -> list[Finding]:
     if plugin:
         out.append(Finding(OK, "Claude Code plugin memcairn is enabled"))
         if effective:
-            out.append(Finding(WARN, f'a manual "{name}" MCP server is configured as well, so '
-                               "the tools are there twice", "memcairn setup removes it"))
+            out.append(Finding(OK, f'the manual "{name}" entry takes precedence: Claude Code '
+                               "hides the plugin's server and a claude.ai connector to the "
+                               "same URL"))
+        else:
+            out.append(Finding(OK, "memory tools come from the plugin",
+                               "if you also add Memcairn as a claude.ai connector, Claude Code "
+                               "uses that one instead (writes as its client); memcairn connect "
+                               "writes a manual entry that wins"))
     elif not effective:
         out.append(Finding(FAIL, f'no MCP server named "{name}" configured',
                            "install the plugin (/plugin marketplace add shanislav/memcairn, "

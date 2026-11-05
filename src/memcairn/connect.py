@@ -1,13 +1,20 @@
 """Hook Claude Code up to Memcairn in one command, without anyone handling a token.
 
 - `memcairn pair <url> <code>`: a server; the code comes from "Add machine" in the web UI.
+- `memcairn connect`: the server already in ~/.memcairn/client.toml (e.g. after `setup`).
 - `memcairn connect --local`: just this computer; Claude Code starts Memcairn itself
   (stdio), no server, no token.
 
-With the `claude` CLI on PATH a server connection goes through the plugin (the token lands
-in the system keychain). Otherwise, e.g. the desktop app only, Memcairn writes the "memory"
-MCP entry into ~/.claude.json and a session-start hook into ~/.claude/settings.json,
-both backed up and recorded, so `memcairn unsetup` takes them out again.
+Each writes the "memory" MCP entry into ~/.claude.json (user scope) and, unless the plugin
+already has one, a session-start hook into ~/.claude/settings.json, both backed up and
+recorded, so `memcairn unsetup` takes them out again.
+
+Why a manual entry and not the plugin's server: Claude Code drops duplicates by URL with a
+fixed priority, manual entry > claude.ai connector > plugin. Someone who also added
+Memcairn as a claude.ai connector (for the phone) would otherwise get the connector in
+Claude Code, writing as `claude-ai` instead of this machine. With the manual entry
+Claude Code hides both the connector and the plugin's server by itself; the plugin's
+session-start hook keeps working.
 """
 
 from __future__ import annotations
@@ -15,8 +22,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-import shutil
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,9 +36,6 @@ from .clientsetup import (
     load_state,
     plugin_enabled,
 )
-
-MARKETPLACE = "shanislav/memcairn"
-
 
 def http_entry(url: str, token: str) -> dict:
     return {"type": "http", "url": f"{url}/mcp", "headers": {"Authorization": f"Bearer {token}"}}
@@ -66,15 +68,18 @@ def write_entry(home: Path, entry: dict, echo: Callable[[str], None]) -> None:
     path = home / ".claude.json"
     doc = _load(path)
     previous = (doc.get("mcpServers") or {}).get("memory")
-    doc.setdefault("mcpServers", {})["memory"] = entry
-    _write_json(path, doc, backed)
-    _record(home, "connect-mcp", path, {"previous": previous})
-    echo(f'added the "memory" MCP server to {path}')
+    if previous == entry:
+        echo(f'the "memory" MCP server in {path} is already set')
+    else:
+        doc.setdefault("mcpServers", {})["memory"] = entry
+        _write_json(path, doc, backed)
+        _record(home, "connect-mcp", path, {"previous": previous})
+        echo(f'added the "memory" MCP server to {path}')
 
     settings = home / ".claude" / "settings.json"
     doc = _load(settings)
-    if any(_is_ours(g) for g in _session_groups(doc)):
-        return
+    if plugin_enabled(home) or any(_is_ours(g) for g in _session_groups(doc)):
+        return  # the plugin's hook or an earlier one already loads the overview
     group = {"matcher": MATCHER, "hooks": [{"type": "command", "timeout": 10,
                                             "command": f'"{_exe()}" context'}]}
     doc.setdefault("hooks", {}).setdefault("SessionStart", []).append(group)
@@ -83,23 +88,9 @@ def write_entry(home: Path, entry: dict, echo: Callable[[str], None]) -> None:
     echo(f"added a session-start hook that loads the memory overview ({settings})")
 
 
-def plugin_install(url: str, token: str, echo: Callable[[str], None]) -> bool:
-    exe = shutil.which("claude")
-    if not exe:
-        return False
-    cmd = [exe, "plugin", "install", "memcairn", "--marketplace", MARKETPLACE,
-           "--config", f"url={url}", "--config", f"token={token}"]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if r.returncode != 0:
-        echo("plugin install failed, falling back to a manual entry: "
-             + (r.stderr or r.stdout).strip().replace(token, "***")[:300])
-        return False
-    echo("installed the Memcairn plugin (token stored in the system keychain)")
-    return True
-
 
 def pair(home: Path, url: str, code: str, echo: Callable[[str], None], *,
-         use_plugin: bool = True, opener=None) -> str:
+         opener=None) -> str:
     """Trade a pairing code for a token and connect this machine: the client name."""
     import urllib.request
 
@@ -117,13 +108,19 @@ def pair(home: Path, url: str, code: str, echo: Callable[[str], None], *,
     name, token = got["name"], got["token"]
     client.write_client(url, token, home / ".memcairn" / "client.toml")
     echo(f"paired as '{name}'; server and token saved to {home / '.memcairn' / 'client.toml'}")
-    if plugin_enabled(home):
-        echo("the Memcairn plugin is already installed: it keeps its own token. If it "
-             "should use this one, uninstall the plugin and run pair again.")
-    elif not (use_plugin and plugin_install(url, token, echo)):
-        write_entry(home, http_entry(url, token), echo)
+    write_entry(home, http_entry(url, token), echo)
     echo("Restart Claude Code (or start a new session) to load the memory.")
     return name
+
+
+def connect_saved(home: Path, echo: Callable[[str], None]) -> None:
+    """The manual entry for the server and token in ~/.memcairn/client.toml."""
+    url, token = client.auth(home=home)
+    if not (url and token):
+        raise RuntimeError("no server in ~/.memcairn/client.toml: use memcairn pair <url> "
+                           "<code> (code from Add machine in the web UI)")
+    write_entry(home, http_entry(url, token), echo)
+    echo("Restart Claude Code (or start a new session).")
 
 
 def connect_local(home: Path, echo: Callable[[str], None]) -> None:

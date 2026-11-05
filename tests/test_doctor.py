@@ -56,7 +56,7 @@ def test_hook_detection(tmp_path):
 def test_plugin_counts_as_configured(tmp_path):
     write(tmp_path / ".claude" / "settings.json",
           {"autoMemoryEnabled": False, "enabledPlugins": {"memcairn@memcairn": True}})
-    assert levels(d.check_configs(tmp_path, tmp_path)) == [d.OK]
+    assert levels(d.check_configs(tmp_path, tmp_path)) == [d.OK, d.OK]
     assert levels(d.check_hook(tmp_path)) == [d.OK, d.OK]
 
 

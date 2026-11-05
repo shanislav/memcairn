@@ -416,25 +416,32 @@ def setup(
 
 @app.command()
 def pair(url: str = typer.Argument(..., help="Server address, e.g. https://memory.example.com"),
-         code: str = typer.Argument(..., help="Code from Add machine in the web UI."),
-         no_plugin: bool = typer.Option(False, help="Write a manual MCP entry even when the "
-                                        "claude CLI could install the plugin.")):
+         code: str = typer.Argument(..., help="Code from Add machine in the web UI.")):
     """Connect this machine to a Memcairn server with a pairing code (no token to copy)."""
     from .connect import pair as do_pair
 
     try:
-        do_pair(Path.home(), url, code, typer.echo, use_plugin=not no_plugin)
+        do_pair(Path.home(), url, code, typer.echo)
     except RuntimeError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1) from e
 
 
 @app.command("connect")
-def connect_cmd(local: bool = typer.Option(..., "--local", help="Memory on this computer only.")):
-    """Connect Claude Code to a memory on this computer: no server, no token."""
-    from .connect import connect_local
+def connect_cmd(local: bool = typer.Option(False, "--local",
+                                           help="Memory on this computer only (no server).")):
+    """Connect Claude Code: --local for a memory on this computer (no server, no token);
+    without it, to the server saved in ~/.memcairn/client.toml by pair or setup."""
+    from .connect import connect_local, connect_saved
 
-    connect_local(Path.home(), typer.echo)
+    if local:
+        connect_local(Path.home(), typer.echo)
+        return
+    try:
+        connect_saved(Path.home(), typer.echo)
+    except RuntimeError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 @app.command("login-link")

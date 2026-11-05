@@ -86,14 +86,21 @@ in `memcairn.db-wal` next to it.
    ```
 
 The code works once, for 10 minutes. `pair` stores the server and this machine's token in
-`~/.memcairn/client.toml` (readable by you only), then connects Claude Code: through the
-plugin when the `claude` CLI is on PATH (the token goes to the system keychain), else with
-a `memory` entry in `~/.claude.json` plus a session-start hook. Restart Claude Code.
-`memcairn unsetup` takes out what `pair` added.
+`~/.memcairn/client.toml` (readable by you only), then writes a `memory` entry into
+`~/.claude.json` plus a session-start hook (none if the plugin is installed: it has its
+own). Restart Claude Code. `memcairn unsetup` takes out what `pair` added.
+
+**Why a manual entry:** Claude Code loads each server URL once, preferring a manual entry
+over a claude.ai connector and a connector over a plugin. If you also added Memcairn as a
+claude.ai connector (for the phone), a machine with only the plugin would use the
+connector and record its writes as `claude-ai`. With the manual entry the machine stays
+itself, and Claude Code hides the connector and the plugin's server on its own.
+`memcairn connect` writes that entry for a machine that is already set up (it reads
+`~/.memcairn/client.toml`).
 
 ### The plugin
 
-`pair` installs it for you. To install it by hand, create a token on the server
+Useful without the Memcairn CLI on the machine. Create a token on the server
 (`docker compose exec memcairn memcairn token add work-laptop`, shown once, with these
 steps filled in) and run in Claude Code:
 

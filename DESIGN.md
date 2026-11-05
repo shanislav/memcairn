@@ -128,7 +128,10 @@ database.
 - **OAuth 2.1** for claude.ai and the Claude apps, whose connectors can't send a fixed
   header: dynamic client registration, PKCE, 24-hour access tokens, 90-day refresh tokens
   rotated on every use. The approval page takes a pairing code; the connection then acts
-  as that client. Revoking a client ends its OAuth and browser sessions too.
+  as that client. Revoking a client ends its OAuth and browser sessions too. Claude Code
+  also loads claude.ai connectors and keeps one server per URL (manual entry > connector >
+  plugin), so `pair` writes a manual entry: a machine stays itself instead of writing as
+  the connector.
 - **Locally** (stdio) there is no network and no token. The local web UI still requires
   its one-time link, because any web page in your browser can reach `localhost`.
 - The server should sit on a private network (LAN, VPN, IP allowlist) with the token as

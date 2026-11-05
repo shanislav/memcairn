@@ -32,17 +32,19 @@ def home_with_manual_setup(tmp_path, plugin=True):
     return tmp_path
 
 
-def test_setup_moves_manual_setup_to_plugin_and_unsetup_restores(tmp_path):
+def test_setup_next_to_the_plugin_keeps_the_manual_entry_and_unsetup_restores(tmp_path):
     home = home_with_manual_setup(tmp_path)
     claude0, settings0 = read(home / ".claude.json"), read(home / ".claude" / "settings.json")
     shown = []
     n = cs.run_setup(home, lambda c, diff: shown.append((c.id, diff)) or True, lambda s: None,
                      cwd=tmp_path / "work")
-    assert [i for i, _ in shown] == ["client", "manual-mcp", "manual-hook", "automemory",
-                                     "sync-hook"] and n == 5
+    # the manual entry stays: Claude Code prefers it over the plugin and a claude.ai
+    # connector to the same URL
+    assert [i for i, _ in shown] == ["client", "manual-hook", "automemory",
+                                     "sync-hook"] and n == 4
     assert all(TOKEN not in diff for _, diff in shown)  # diffs never show the token
     claude, settings = read(home / ".claude.json"), read(home / ".claude" / "settings.json")
-    assert "memory" not in claude["mcpServers"] and claude["projects"] == {"/p": {}}
+    assert "memory" in claude["mcpServers"] and claude["projects"] == {"/p": {}}
     assert "autoMemoryEnabled" not in settings and settings["theme"] == "dark"  # untouched
     groups = settings["hooks"]["SessionStart"]
     assert CTX_HOOK not in groups and OTHER_HOOK in groups
@@ -52,7 +54,6 @@ def test_setup_moves_manual_setup_to_plugin_and_unsetup_restores(tmp_path):
     toml = (home / ".memcairn" / "sync.toml").read_text("utf-8")
     assert "[automemory]" in toml and "/memory" in toml
     assert client.auth(home=home) == ("https://m.example.com", TOKEN)  # from client.toml
-    assert list(home.glob(".claude.json.pre-memcairn-*"))
     assert cs.plan(home, tmp_path / "work") == []  # idempotent
 
     cs.run_unsetup(home, lambda q: True, lambda s: None)

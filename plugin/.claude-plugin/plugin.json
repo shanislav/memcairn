@@ -18,7 +18,7 @@
     "token": {
       "type": "string",
       "title": "Token",
-      "description": "Client token (memcairn token add <name> on the server). Easier: memcairn pair installs this plugin with the token filled in. Stored in the system keychain.",
+      "description": "Client token (memcairn token add <name> on the server). Stored in the system keychain. Easier, without the plugin: memcairn pair.",
       "sensitive": true,
       "required": true
     }

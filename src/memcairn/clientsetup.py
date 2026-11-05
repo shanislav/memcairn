@@ -8,7 +8,6 @@ recorded in ~/.memcairn/setup-state.json, so `unsetup` reverts exactly those.
 Offered changes:
 - client: write ~/.memcairn/client.toml (url + token for `sync` / `doctor`), taken from a
   manual MCP entry, since with the plugin the token lives in the keychain;
-- manual-mcp: remove a manual "memory" MCP entry from ~/.claude.json (the plugin has one);
 - manual-hook: remove a manual SessionStart hook that curls /context (the plugin has one);
 - automemory: share Claude Code's auto memory folder of this project with your other
   machines through Memcairn (a section in ~/.memcairn/sync.toml). Auto memory keeps
@@ -112,23 +111,18 @@ def _exe() -> str:
 def plan(home: Path, cwd: Path | None = None, *,
          disable_auto_memory: bool = False) -> list[Change]:
     cwd = cwd or Path.cwd()
-    claude_json, settings_path = home / ".claude.json", home / ".claude" / "settings.json"
-    claude, settings = _load(claude_json), _load(settings_path)
+    settings_path = home / ".claude" / "settings.json"
+    settings = _load(settings_path)
     plugin = plugin_enabled(home)
     out: list[Change] = []
 
-    manual = (claude.get("mcpServers") or {}).get("memory")
     client_file = home / ".memcairn" / "client.toml"
     url, token = client._claude_json("memory", home)
     if not client_file.is_file() and url and token:
         out.append(Change("client", f"save server URL and token for the CLI to {client_file}",
                           client_file, "", lambda d: None))
-    if plugin and manual:
-        def drop_mcp(d: dict) -> None:
-            d["mcpServers"].pop("memory", None)
-        out.append(Change("manual-mcp", 'remove the manual "memory" MCP server (the plugin '
-                          "provides it)", claude_json, "mcpServers", drop_mcp,
-                          {"spec": manual}))
+    # a manual "memory" entry next to the plugin stays: Claude Code prefers it and hides
+    # the plugin's server and a claude.ai connector to the same URL (no tools twice)
     # only the /context hooks themselves: a group may also hold other hooks (e.g. sync)
     ctx = [{**({"matcher": g["matcher"]} if "matcher" in g else {}),
             "hooks": [h for h in g.get("hooks", []) if _is_context_hook({"hooks": [h]})]}
