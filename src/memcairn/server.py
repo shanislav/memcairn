@@ -277,9 +277,12 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             return False, None
         tok = await (provider.load_access_token(token) if provider
                      else StoreTokenVerifier(store).verify_token(token))
+        from .pairing import WEB_CLIENT, session_client  # web UI sessions
+
         if tok:
+            if tok.client_id == WEB_CLIENT:  # renews it (30 days from the last use)
+                session_client(store, token)
             return True, tok.subject or tok.client_id
-        from .pairing import session_client  # a web UI session from a login link
 
         name = session_client(store, token)
         return (name is not None), name

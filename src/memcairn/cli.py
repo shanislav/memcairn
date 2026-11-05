@@ -436,6 +436,25 @@ def login_link(db: Path = DbOpt,
                "minutes; the browser then stays logged in for 7 days)")
 
 
+@app.command()
+def password(db: Path = DbOpt,
+             clear: bool = typer.Option(False, "--clear", help="Remove the password.")):
+    """Set the web UI password (asked twice, never shown). Run it on the server."""
+    from . import pairing
+
+    store = open_store(db, vectors=False)
+    if clear:
+        pairing.set_password(store, None)
+        typer.echo("password removed; log in with memcairn login-link")
+        return
+    new = typer.prompt("new web UI password", hide_input=True, confirmation_prompt=True)
+    try:
+        pairing.set_password(store, new)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+    typer.echo("password set; browsers logged in with the old one are logged out")
+
+
 @app.command("add-machine")
 def add_machine(name: str = typer.Argument(..., help="Name for the new machine or app."),
                 db: Path = DbOpt,

@@ -150,3 +150,55 @@ def test_cli_add_machine_and_login_link_print_working_codes(tmp_path):
     out = run(app, ["login-link", "--db", str(db), "--url", "https://m.example"])
     assert "https://m.example/ui#login=" in out.output
     assert run(app, ["add-machine", "bad name", "--db", str(db)]).exit_code != 0
+
+
+def test_password_login_logout_and_change(http):
+    assert http.get("/api/auth").json() == {"password": False}
+    assert http.post("/api/login", json={"password": "anything-at-all"}).status_code == 401
+    link = http.post("/api/login", json={"code": pairing.create(http.store, "login")}
+                     ).json()["token"]
+    L = {"Authorization": f"Bearer {link}"}
+    # a client token can't set the web password; a browser session can
+    assert http.post("/api/password", json={"new": "long enough pw"}, headers=H
+                     ).status_code == 403
+    assert http.post("/api/password", json={"new": "short"}, headers=L).status_code == 400
+    assert http.post("/api/password", json={"new": "my cairn on the hill"}, headers=L
+                     ).status_code == 200
+    assert http.get("/api/auth").json() == {"password": True}
+    tok = http.post("/api/login", json={"password": "my cairn on the hill"}).json()["token"]
+    P = {"Authorization": f"Bearer {tok}"}
+    assert http.get("/api/stats", headers=P).json()["client"] == "web-ui"
+    # a password session must know the current password to change it
+    assert http.post("/api/password", json={"current": "nope", "new": "another long one"},
+                     headers=P).status_code == 401
+    assert http.post("/api/password", json={"current": "my cairn on the hill",
+                                            "new": "another long one"}, headers=P
+                     ).status_code == 200
+    assert http.get("/api/stats", headers=P).status_code == 401  # old-password sessions end
+    # logout ends only this browser's session
+    assert http.post("/api/logout", headers=L).json() == {"ended": True}
+    assert http.get("/api/stats", headers=L).status_code == 401
+    t2 = http.post("/api/login", json={"password": "another long one"}).json()["token"]
+    assert http.get("/api/stats", headers={"Authorization": f"Bearer {t2}"}).status_code == 200
+
+
+def test_wrong_passwords_are_throttled(http):
+    pairing.set_password(http.store, "correct horse battery")
+    for _ in range(5):
+        assert http.post("/api/login", json={"password": "wrong guess!"}).status_code == 401
+    r = http.post("/api/login", json={"password": "correct horse battery"})
+    assert r.status_code == 429 and "try again" in r.json()["error"]
+    # the login link still works while passwords are blocked
+    assert http.post("/api/login", json={"code": pairing.create(http.store, "login")}).json()
+
+
+def test_sessions_renew_on_use(http):
+    tok = http.post("/api/login", json={"code": pairing.create(http.store, "login")}
+                    ).json()["token"]
+    with http.store.lock:
+        http.store.conn.execute("UPDATE oauth_token SET expires_at = ? WHERE client_id = "
+                                "'web-ui'", (int(time.time()) + 3600,))
+    assert http.get("/api/stats", headers={"Authorization": f"Bearer {tok}"}).status_code == 200
+    left = http.store.conn.execute("SELECT expires_at FROM oauth_token WHERE client_id = "
+                                   "'web-ui'").fetchone()[0] - time.time()
+    assert left > 29 * 86400

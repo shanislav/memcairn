@@ -120,8 +120,11 @@ database.
 - **Pairing**: nobody has to copy a token. "Add machine" in the web UI (or
   `memcairn add-machine` on the server) makes a one-time code, 10 minutes;
   `memcairn pair` on the new machine trades it for a token and writes it straight into the
-  configuration. The web UI logs in with a one-time link (`memcairn login-link`, or
-  `memcairn ui` locally). Codes have 40 bits and work once.
+  configuration. Codes have 40 bits and work once.
+- **Web UI**: one password (one person, no accounts), stored as a scrypt hash, five wrong
+  tries block it for 15 minutes. Sessions last 30 days from the last use; signing out
+  ends one. `memcairn login-link` (a one-time link, from the server) is the first login and
+  the way back in after a forgotten password; `memcairn ui` locally logs in by itself.
 - **OAuth 2.1** for claude.ai and the Claude apps, whose connectors can't send a fixed
   header: dynamic client registration, PKCE, 24-hour access tokens, 90-day refresh tokens
   rotated on every use. The approval page takes a pairing code; the connection then acts

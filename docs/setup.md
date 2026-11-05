@@ -295,10 +295,14 @@ it's used.
 
 ## 5. Managing clients
 
-**In a browser:** `https://memory.example.com/ui`. Log in with the link from
-`memcairn login-link` (on the server; single use, 15 minutes; the browser then stays
-logged in for 7 days), or with a client token. Locally, `memcairn ui` opens it already
-logged in.
+**In a browser:** `https://memory.example.com/ui`. The first time, log in with the link
+from `memcairn login-link` (on the server; single use, 15 minutes) and set a password
+(**Password** in the header; or `memcairn password` on the server). After that you log in
+with the password; a browser stays logged in for 30 days from its last visit, and **Sign
+out** ends just that browser. Forgot the password? `login-link` again and set a new one;
+a new password logs out the browsers that used the old one. Five wrong passwords block
+password logins for 15 minutes (the link still works). Locally, `memcairn ui` opens the
+page already logged in.
 
 - **Overview** (the start page): how many facts, entities, open todos and documents there
   are and how much is waiting for cleanup; changes over the last 14 days; how agents use

@@ -184,19 +184,67 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         mcp.custom_route(path, methods=methods)(guarded(fn))
     mcp.custom_route("/api/pair", methods=["POST"])(guarded(pair_code))
 
-    # no token yet: these trade a one-time code for one
-    async def body_code(request) -> str:
+    # no token yet: these trade a password or a one-time code for one
+    async def body(request) -> dict:
         try:
-            return str((await request.json()).get("code", ""))
+            data = await request.json()
+            return data if isinstance(data, dict) else {}
         except ValueError:
-            return ""
+            return {}
+
+    async def body_code(request) -> str:
+        return str((await body(request)).get("code", ""))
+
+    throttle = pairing.Throttle()
+
+    @mcp.custom_route("/api/auth", methods=["GET"])
+    async def auth_info(request):
+        return JSONResponse({"password": pairing.has_password(store)})
 
     @mcp.custom_route("/api/login", methods=["POST"])
     async def login(request):
-        token = pairing.web_session(store, await body_code(request))
-        if not token:
-            return err("unknown, used or expired login link", 401)
+        data = await body(request)
+        if "password" in data:
+            wait = throttle.wait()
+            if wait:
+                return err(f"too many wrong passwords; try again in {wait // 60 + 1} min", 429)
+            if not pairing.check_password(store, str(data["password"])):
+                throttle.failed()
+                return err("wrong password", 401)
+            token = pairing.new_session(store, "password")
+        else:
+            token = pairing.web_session(store, str(data.get("code", "")))
+            if not token:
+                return err("unknown, used or expired login link", 401)
         return JSONResponse({"token": token, "client": pairing.WEB_CLIENT})
+
+    def bearer(request) -> str:
+        h = request.headers.get("authorization", "")
+        return h[7:] if h.lower().startswith("bearer ") else ""
+
+    async def logout(request, name):
+        return JSONResponse({"ended": pairing.end_session(store, bearer(request))})
+
+    async def password(request, name):
+        """Set or change the web UI password, from a browser session only. Changing it needs
+        the current one, unless this session came from a login link (the way back in)."""
+        info = pairing.session_info(store, bearer(request))
+        if not info:
+            return err("log in to the web UI first (memcairn password on the server works too)",
+                       403)
+        data = await body(request)
+        if pairing.has_password(store) and info[0] != "link":
+            wait = throttle.wait()
+            if wait:
+                return err(f"too many wrong passwords; try again in {wait // 60 + 1} min", 429)
+            if not pairing.check_password(store, str(data.get("current", ""))):
+                throttle.failed()
+                return err("the current password is wrong", 401)
+        pairing.set_password(store, str(data.get("new", "")))
+        return JSONResponse({"password": True})
+
+    mcp.custom_route("/api/logout", methods=["POST"])(guarded(logout))
+    mcp.custom_route("/api/password", methods=["POST"])(guarded(password))
 
     @mcp.custom_route("/pair", methods=["POST"])
     async def pair(request):

@@ -86,12 +86,19 @@ th { color: var(--muted); font-weight: 500; }
 <body>
 <div id="gate" hidden>
   <h1 style="margin-top:0">Memcairn</h1>
-  <p>Open the login link that <code>memcairn login-link</code> prints on the server
-  (or <code>memcairn ui</code> on your computer). Or enter a client token; it stays in this
-  browser tab only, unless you tick the box.</p>
+  <div id="pwbox" hidden>
+    <input id="pw" type="password" placeholder="password" autocomplete="current-password">
+    <div class="row"><button class="act" id="pwgo">Log in</button></div>
+    <p class="meta">Forgot it? On the server, <code>memcairn login-link</code> prints a link
+    that logs you in once; then set a new password.</p>
+  </div>
+  <p id="nopw" hidden>No password is set yet. Open the login link that
+  <code>memcairn login-link</code> prints on the server (or run <code>memcairn ui</code> on
+  your computer), then set a password.</p>
+  <details><summary class="meta">log in with a client token</summary>
   <input id="tok" type="password" placeholder="mcn_…" autocomplete="off">
   <label><input id="keep" type="checkbox"> remember on this device</label>
-  <div class="row"><button class="act" id="enter">Open</button></div>
+  <div class="row"><button class="ghost" id="enter">Open</button></div></details>
   <div class="msg" id="gatemsg"></div>
 </div>
 
@@ -106,6 +113,7 @@ th { color: var(--muted); font-weight: 500; }
   </nav>
   <span style="flex:1"></span>
   <span class="meta" id="who"></span>
+  <button class="ghost" id="pwbtn" hidden>Password</button>
   <button class="ghost" id="logout">Sign out</button>
 </header>
 <main>
@@ -153,7 +161,38 @@ async function api(path, opts = {}) {
   return data;
 }
 
-function showGate(msg = "") { $("#app").hidden = true; $("#gate").hidden = false; $("#gatemsg").textContent = msg; $("#tok").focus(); }
+function showGate(msg = "") {
+  $("#app").hidden = true; $("#gate").hidden = false; $("#gatemsg").textContent = msg;
+  fetch("/api/auth").then(r => r.json()).then(a => {
+    $("#pwbox").hidden = !a.password; $("#nopw").hidden = a.password;
+    (a.password ? $("#pw") : $("#tok")).focus();
+  }).catch(() => {});
+}
+async function passwordLogin() {
+  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("#pw").value }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { $("#gatemsg").textContent = j.error || r.statusText; $("#pw").select(); return; }
+  $("#pw").value = ""; token = j.token; store.set(token, true); start();
+}
+
+let hasPassword = true;
+function passwordPanel(first) {
+  $("#detail").innerHTML = `<div class="row" style="justify-content:space-between;margin:0"><h2>${first ? "Set a password" : "Change the password"}</h2><button class="ghost" id="x">Close</button></div>
+    <p class="meta">For logging in to this page. At least 10 characters; a sentence you remember works well. Forgot it? <code>memcairn login-link</code> on the server.</p>
+    <div class="grid">${first ? "" : '<label>current password<input id="pwcur" type="password" autocomplete="current-password"></label>'}
+      <label>new password<input id="pwnew" type="password" autocomplete="new-password"></label>
+      <label>again<input id="pwnew2" type="password" autocomplete="new-password"></label></div>
+    <div class="row"><button class="act" id="pwsave">Save</button></div><div class="msg" id="dmsg"></div>`;
+  $("#detail").classList.add("open"); $("#x").onclick = close;
+  ($("#pwcur") || $("#pwnew")).focus();
+  $("#pwsave").onclick = async () => {
+    if ($("#pwnew").value !== $("#pwnew2").value) { $("#dmsg").textContent = "The two new passwords differ."; return; }
+    try {
+      await api("/api/password", { method: "POST", body: JSON.stringify({ current: ($("#pwcur") || {}).value || "", new: $("#pwnew").value }) });
+      hasPassword = true; close(); loadOverview(); alert("Password saved. Other browsers that logged in with the old password are logged out.");
+    } catch (err) { $("#dmsg").textContent = err.message; }
+  };
+}
 async function start() {
   $("#gate").hidden = true; $("#app").hidden = false;
   try {
@@ -236,6 +275,8 @@ function ago(ts) {
 let me = null;
 async function loadOverview() {
   const o = await api("/api/overview"); me = o.client;
+  hasPassword = (await fetch("/api/auth").then(r => r.json()).catch(() => ({ password: true }))).password;
+  $("#pwbtn").hidden = me !== "web-ui";
   const st = o.stats;
   api("/api/review").then(review => {  // slower (similarity pairs): fill in when ready
     const el = $("#rvcard"); if (!el) return;
@@ -246,7 +287,7 @@ async function loadOverview() {
   const maxType = Math.max(1, ...Object.values(o.types)), maxEnt = Math.max(1, ...o.top_entities.map(e => e.facts));
   const u = o.usage, recall = u.recall || {}, hook = u["session-hook"] || {};
   const calls = Object.values(u).reduce((a, x) => a + x.calls, 0);
-  $("#overview").innerHTML = `
+  $("#overview").innerHTML = (!hasPassword && me === "web-ui" ? `<div class="panel" style="margin-bottom:12px;border-color:var(--accent)"><b>Set a password</b> so you can log in here again without the server. <button class="act" data-setpw="1">Set password</button></div>` : "") + `
   <div class="cards">
     <div class="card click" data-go="memory"><div class="n">${st.memories}</div><div class="l">facts</div></div>
     <div class="card"><div class="n">${st.entities}</div><div class="l">entities</div></div>
@@ -276,7 +317,7 @@ async function loadOverview() {
 }
 
 $("#overview").onclick = async e => {
-  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-addmachine],[data-done],[data-drop],[data-id]"); if (!t) return;
+  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-addmachine],[data-setpw],[data-done],[data-drop],[data-id]"); if (!t) return;
   const d = t.dataset;
   try {
     if (d.go === "memory") { showTab("memory"); search(); }
@@ -286,6 +327,7 @@ $("#overview").onclick = async e => {
     else if (d.rename) await renameEntity(d.rename);
     else if (d.revoke) await revokeClient(d.revoke, me);
     else if (d.addmachine) addMachine();
+    else if (d.setpw) passwordPanel(true);
     else if (d.done || d.drop) { await setStatus(+(d.done || d.drop), d.done ? "done" : "dropped"); loadOverview(); }
     else if (d.id) openMemory(+d.id);
   } catch (err) { alert(err.message); }
@@ -293,7 +335,13 @@ $("#overview").onclick = async e => {
 
 $("#enter").onclick = () => { token = $("#tok").value.trim(); if (!token) return; store.set(token, $("#keep").checked); start(); };
 $("#tok").onkeydown = e => { if (e.key === "Enter") $("#enter").click(); };
-$("#logout").onclick = () => { store.clear(); token = null; showGate(); };
+$("#logout").onclick = async () => {
+  try { await fetch("/api/logout", { method: "POST", headers: { "Authorization": "Bearer " + token } }); } catch {}
+  store.clear(); token = null; showGate();
+};
+$("#pwbtn").onclick = () => passwordPanel(!hasPassword);
+$("#pwgo").onclick = passwordLogin;
+$("#pw").onkeydown = e => { if (e.key === "Enter") passwordLogin(); };
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   showTab(b.dataset.tab);

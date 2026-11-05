@@ -107,8 +107,11 @@ Give the user the web UI, where they add machines and see what memory holds:
 docker compose exec memcairn memcairn login-link
 ```
 
-It prints a link that logs in once (15 minutes); the browser then stays logged in for
-7 days. Tell the user to bookmark `https://memory.example.com/ui`. Continue with 3C.
+It prints a link that logs in once (15 minutes). The page then asks the user to set a
+password: from then on they log in with it, and the browser stays logged in for 30 days
+from the last visit. Tell the user to bookmark `https://memory.example.com/ui` and that a
+forgotten password is no problem: `login-link` again, then set a new one. Never ask for
+the password yourself. Continue with 3C.
 
 ## 3C. Connect this computer to a server
 

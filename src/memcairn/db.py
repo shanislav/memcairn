@@ -218,6 +218,13 @@ MIGRATIONS: list[str] = [
         expires_at INTEGER NOT NULL
     );
     """,
+    # 9 — server settings (the web UI password hash)
+    """
+    CREATE TABLE setting (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    """,
 ]
 
 
