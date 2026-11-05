@@ -1,6 +1,7 @@
-# Setup guide
+# Guide
 
-How to run Memcairn as one central memory and connect agents to it.
+Everything about running Memcairn and connecting agents to it. For a guided install, let
+Claude Code follow [INSTALL.md](../INSTALL.md).
 
 - [1. Run the server](#1-run-the-server)
 - [2. Connect a client](#2-connect-a-client)
@@ -15,13 +16,13 @@ How to run Memcairn as one central memory and connect agents to it.
 
 ## 1. Run the server
 
-**Single machine, no network.** Run the server over stdio and skip the rest of this
-section. Each client starts its own process on the same database file; SQLite WAL keeps
-the writes safe:
+**Single machine, no network.** Claude Code starts Memcairn itself over stdio; there is
+no server to run and no token. Skip the rest of this section:
 
 ```bash
-uv tool install git+https://github.com/shanislav/memcairn
-claude mcp add --scope user memory -- memcairn serve --client my-laptop
+uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
+memcairn connect --local      # MCP entry in ~/.claude.json + session-start hook, backed up
+memcairn ui                   # browse it; opens the browser, logs in by itself
 ```
 
 **Central server, for several machines or instances.** Run it in Docker behind a TLS
@@ -30,11 +31,16 @@ reverse proxy:
 ```bash
 git clone https://github.com/shanislav/memcairn && cd memcairn
 mkdir -p data && sudo chown 10001 data          # the container runs as uid 10001
-MEMCAIRN_PUBLIC_URL=https://memory.example.com docker compose up -d
+echo "MEMCAIRN_PUBLIC_URL=https://memory.example.com" > .env   # the address clients use
+docker compose up -d --build
 ```
 
-`MEMCAIRN_PUBLIC_URL` is the address clients use. It turns on token authentication and
-the Host-header check, and must match the hostname exactly.
+`MEMCAIRN_PUBLIC_URL` is the address clients use. It turns on authentication and the
+Host-header check, and must match the hostname exactly. Then open the web UI:
+
+```bash
+docker compose exec memcairn memcairn login-link   # a link that logs in once (15 min)
+```
 
 An nginx example (add TLS with certbot or your usual tool):
 
@@ -65,70 +71,62 @@ in `memcairn.db-wal` next to it.
 
 ## 2. Connect a client
 
-**Create one token per machine.** Every fact then records which machine wrote it
-(`by=<name>`), and you can disconnect one machine without touching the others:
+**Each machine (or app) gets its own client**, so every fact records who wrote it
+(`by=<name>`) and you can disconnect one machine without touching the others.
 
-```bash
-docker compose exec memcairn memcairn token add work-laptop
-```
+**With a pairing code** (recommended; nobody copies a token):
 
-The token is printed once, together with the connect steps below filled in for this
-server (set `MEMCAIRN_PUBLIC_URL` or pass `--url`; `--quiet` prints the bare token for
-scripts). Only its hash is stored. If you lose it, run `token add` again with the same
-name; that replaces the token.
+1. In the web UI: Overview → **+ add machine**, give it a name. Or on the server:
+   `docker compose exec memcairn memcairn add-machine work-laptop`.
+2. On the new machine:
 
-### Claude Code: the plugin (recommended)
+   ```bash
+   uv tool install git+https://github.com/shanislav/memcairn
+   memcairn pair https://memory.example.com K7QM-42XD
+   ```
 
-In Claude Code, run:
+The code works once, for 10 minutes. `pair` stores the server and this machine's token in
+`~/.memcairn/client.toml` (readable by you only), then connects Claude Code: through the
+plugin when the `claude` CLI is on PATH (the token goes to the system keychain), else with
+a `memory` entry in `~/.claude.json` plus a session-start hook. Restart Claude Code.
+`memcairn unsetup` takes out what `pair` added.
+
+### The plugin
+
+`pair` installs it for you. To install it by hand, create a token on the server
+(`docker compose exec memcairn memcairn token add work-laptop`, shown once, with these
+steps filled in) and run in Claude Code:
 
 ```
 /plugin marketplace add shanislav/memcairn
 /plugin install memcairn@memcairn
 ```
 
-It asks for the server URL (`https://memory.example.com`, without `/mcp`) and the token.
-The token goes to the system keychain, not into a settings file. Restart Claude Code.
-Change them later with `/plugin configure memcairn@memcairn`. (`token add` prints these
-steps with the URL and token filled in, ready to send to whoever sets up that machine.)
-
-**No `/plugin` command** (the Claude desktop app's Code tab, for example): install it
-with the `claude` CLI instead. Plugins installed this way are in user scope, so the
-desktop app uses them too:
-
-```bash
-claude plugin marketplace add shanislav/memcairn
-claude plugin install memcairn@memcairn --config url=https://memory.example.com --config token=<token>
-```
-
-The desktop app ships the CLI even if `claude` is not on your PATH: on Windows it is
-`%LOCALAPPDATA%\Claude-Data\<package>\claude-code\<version>\<hash>\claude.exe` (Store
-install) or under `%APPDATA%\Claude\claude-code\`. These commands need no sign-in.
+It asks for the server URL (without `/mcp`) and the token. Without `/plugin` (the
+desktop app), use the CLI:
+`claude plugin install memcairn --marketplace shanislav/memcairn --config url=https://memory.example.com --config token=<token>`.
 
 The plugin adds only:
 
 | What | Cost |
 |---|---|
-| MCP server `memory` (tools `mcp__plugin_memcairn_memory__recall`, …), usage rules in its MCP instructions | ~1,000 tokens of tool list + ~380 of rules per session |
-| `SessionStart` hook: `curl` of `/context` (pinned facts, open todos, top facts); 3 s limit, prints nothing on error | ~500 tokens per session |
+| MCP server `memory` (tools `mcp__plugin_memcairn_memory__recall`, …), usage rules in its MCP instructions | ~900 tokens of tool list + ~480 of rules per session |
+| `SessionStart` hook: `curl` of `/context` (pinned facts, open todos, top facts); 3 s limit, prints nothing on error | up to ~900 tokens per session |
 | `/memcairn:recall <query>`, `/memcairn:remember <fact>` | 0 (manual only, never shown to the model) |
 | `/mcp__plugin_memcairn_memory__cleanup` (MCP prompt) | 0 until you run it |
 
-It edits no file of yours, `CLAUDE.md` included. The hook needs `curl`, which comes with
-Windows 10+, macOS and most Linux systems.
+It edits no file of yours, `CLAUDE.md` included.
 
-**Optional extras: `memcairn setup`.** With the CLI installed
-(`uv tool install git+https://github.com/shanislav/memcairn`), `memcairn setup` offers
-the changes the plugin deliberately does not make. It asks about each one, shows a diff,
-and backs up the file (`*.pre-memcairn-<time>`) before writing:
+**Optional extras: `memcairn setup`** offers what the plugin deliberately does not do,
+each change with a diff, a backup (`*.pre-memcairn-<time>`) and a y/n question
+(`--dry-run` only shows them, `--yes` applies all):
 
 - **share your auto memory with your other machines** (run it in your main project
   folder): Claude Code's own auto memory keeps working exactly as before, and Memcairn
-  carries its folder to your other machines (see "Memcairn and Claude Code's own memory"
-  below);
+  carries its folder to your other machines (see below);
 - run `memcairn sync --quiet` at session start and end, which is what carries it;
-- move from a manual setup: remove the hand-made `memory` MCP entry and `/context` hook,
-  now that the plugin provides both, and keep the URL and token for the CLI in
-  `~/.memcairn/client.toml`.
+- move from a manual setup to the plugin: remove the hand-made `memory` MCP entry and
+  `/context` hook, and keep the URL and token for the CLI in `~/.memcairn/client.toml`.
 
 `memcairn setup --disable-auto-memory` also turns auto memory off, if you want Memcairn
 as your only memory. Most people shouldn't: you lose memory whenever the server is out of
@@ -160,9 +158,9 @@ auto memory holds personal preferences, so it is not a team feature.
 setup changed, from its record in `~/.memcairn/setup-state.json`. `memcairn doctor` tells
 you what is still missing.
 
-### Claude Code: by hand
+### By hand
 
-Without the plugin (and for other MCP clients):
+Without the plugin (and for other MCP clients), with a token from `token add`:
 
 ```bash
 claude mcp add --scope user --transport http memory https://memory.example.com/mcp \
@@ -170,9 +168,8 @@ claude mcp add --scope user --transport http memory https://memory.example.com/m
 claude mcp list        # should show: memory: ... ✔ Connected
 ```
 
-Or add it by hand to the top-level `mcpServers` in `~/.claude.json`. That file is where
-Claude Code reads user-scope MCP servers. An `mcpServers` block in
-`~/.claude/settings.json` is **not** read.
+Or add it to the top-level `mcpServers` in `~/.claude.json` (an `mcpServers` block in
+`~/.claude/settings.json` is **not** read):
 
 ```json
 {
@@ -196,56 +193,39 @@ and can write at the same time.
 ### claude.ai, Claude Desktop chat and the mobile apps (OAuth)
 
 Custom connectors there can't send a fixed token; they sign in with OAuth. Memcairn has a
-small OAuth server built in, off by default. Approving a connection needs no password:
-you paste a Memcairn client token once, and the connector then acts as that client
-(writes show `by=<name>`, its default scope applies, `token revoke <name>` cuts it off).
+small OAuth server built in, off by default. The connector then acts as a Memcairn client
+(writes show `by=<name>`, `token revoke <name>` or revoke in the web UI cuts it off).
 
 1. Turn it on: `MEMCAIRN_OAUTH=1` (or `serve --oauth`), with `MEMCAIRN_PUBLIC_URL` set to
    the public HTTPS address. Static tokens keep working, so Claude Code is unaffected.
-2. Create the client: `memcairn token add claude-ai`.
-3. **Let Anthropic reach the server.** These connectors are called from Anthropic's
+2. **Let Anthropic reach the server.** These connectors are called from Anthropic's
    cloud, not from your phone, so a LAN/VPN-only server is out of reach. Allow Anthropic's
-   published outbound ranges (they change only with notice; check
-   [the list](https://platform.claude.com/docs/en/api/ip-addresses)), e.g. in nginx:
+   published outbound ranges (check
+   [the current list](https://platform.claude.com/docs/en/api/ip-addresses)), e.g. in nginx:
 
    ```nginx
    allow 160.79.104.0/21;   # Anthropic outbound (MCP connectors)
    allow 153.61.208.0/20;
    ```
 
+3. Make a pairing code: **+ add machine** in the web UI, name it e.g. `claude-ai`.
 4. In claude.ai: Settings → Connectors → Add custom connector, URL
-   `https://memory.example.com/mcp`, no client ID. A Memcairn page opens: paste the
-   `claude-ai` token and approve. The connector is then available in claude.ai, the
-   desktop app's chat and the mobile apps (enable it per chat under "+" → Connectors).
+   `https://memory.example.com/mcp`, no client ID. A Memcairn page opens: enter the code
+   and approve. Do this from a network your server lets in (the page opens in your
+   browser). The connector is then available in claude.ai, the desktop app's chat and the
+   mobile apps (enable it per chat under "+" → Connectors).
 
-Access tokens last 24 hours, refresh tokens 90 days and are rotated on every use; only
-their hashes are stored.
+Access tokens last 24 hours; refresh tokens last 90 days and are replaced by new ones on
+every use, so a connector you use keeps working. Only hashes are stored.
 
-**Name the server `memory`** if you're replacing the official memory server. The tool
-names become `mcp__memory__recall` and so on, which is what the snippet below assumes.
+### Name clashes
 
-> **Remove every other server called `memory` first.** Claude Code resolves a name
-> clash in favour of the more specific scope, so a project-level `.mcp.json` (or a
-> project entry in `~/.claude.json`) that still starts the old `server-memory` silently
-> wins over your user-level Memcairn entry. The agent then sees `search_nodes` instead of
-> `recall`. Find leftovers with:
->
-> The **Claude desktop app** has its own MCP list in `claude_desktop_config.json`. On
-> Windows Store installs that file can live under
-> `%LOCALAPPDATA%\Claude-Data\<package>\` rather than `%APPDATA%\Claude\`. A `memory` entry
-> there is also started for Code sessions in the app. In the app's MCP/connector list it
-> shows up as a "desktop" server.
->
-> ```bash
-> grep -rl --include=.mcp.json '"memory"' ~ 2>/dev/null
-> claude mcp list      # run inside each project; check what "memory" points to
-> ```
->
-> Windows, to find every desktop config:
-> `Get-ChildItem $env:LOCALAPPDATA,$env:APPDATA -Filter claude_desktop_config.json -Recurse -ErrorAction SilentlyContinue`
->
-> If you'd rather not hunt for them, register Memcairn under its own name (`memcairn`)
-> and write `mcp__memcairn__…` in your agent instructions.
+If you're replacing the official memory server, **remove every other server called
+`memory` first.** Claude Code resolves a name clash in favour of the more specific scope,
+so a project-level `.mcp.json` (or a project entry in `~/.claude.json`) that still starts
+the old `server-memory` silently wins: the agent then sees `search_nodes` instead of
+`recall`. The Claude desktop app also has its own list in `claude_desktop_config.json`.
+`memcairn doctor` finds all of them.
 
 ## 3. Tell the agent how to use it
 
@@ -270,37 +250,15 @@ changed in reality, `update` with `supersede=true` (the old one stays in history
 Never store passwords or tokens (the server refuses them).
 ```
 
-### Inject memory at session start (recommended)
+### Memory at session start
 
-The plugin does this for you; this is the manual way.
-
-An instruction like the one above relies on the model remembering to call a tool. A
-Claude Code `SessionStart` hook is more reliable: Claude Code runs it at the start of every
-session and adds its output to the context. Memcairn serves the session-start context as
-plain text at `GET /context`, so the hook only needs `curl`. Add this to
-`~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "curl -sf -m 3 -H \"Authorization: Bearer <token>\" https://memory.example.com/context",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-- It costs at most about 500 tokens per session; change it with `?max_tokens=…`.
-- It uses the token's default scope; pick another with `?scope=project:x`.
-- If the server is unreachable, `curl -f` prints nothing and the session starts normally.
+The plugin and `memcairn pair` / `connect --local` add a `SessionStart` hook: Claude Code
+runs it at the start of every session and adds its output to the context, so the overview
+arrives without the model having to call a tool. The hook prints the server's plain-text
+`GET /context` (`memcairn context`, or `curl -sf -m 3 -H "Authorization: Bearer <token>"
+https://memory.example.com/context`). If the server is unreachable it prints nothing and
+the session starts normally. `?max_tokens=…` changes the budget (default 900),
+`?scope=project:x` the scope.
 
 What goes in, best first:
 1. pinned facts (`remember(..., pinned=true)` or `update(id, pinned=true)`);
@@ -337,14 +295,17 @@ it's used.
 
 ## 5. Managing clients
 
-**In a browser:** open `https://memory.example.com/ui` and enter a client token (create
-one for yourself, e.g. `token add browser`).
+**In a browser:** `https://memory.example.com/ui`. Log in with the link from
+`memcairn login-link` (on the server; single use, 15 minutes; the browser then stays
+logged in for 7 days), or with a client token. Locally, `memcairn ui` opens it already
+logged in.
 
 - **Overview** (the start page): how many facts, entities, open todos and documents there
   are and how much is waiting for cleanup; changes over the last 14 days; how agents use
   memory (calls, tokens per recall, empty results, sessions started); which machines
-  connected when and how much they wrote; types; the biggest topics; open todos with
-  done/drop buttons; what changed last.
+  connected when and how much they wrote, with **+ add machine** (pairing code) and
+  **revoke**; types; the biggest topics; open todos with done/drop buttons; what changed
+  last.
 - **Memory**: search like the agents do (including deep mode and time words), filter by
   type, entity and todo status. A fact opens with its version history and the facts it
   replaced: edit it, save the change as a new version when it changed in reality, mark a
@@ -361,8 +322,9 @@ date shown as "≈ 2026-05-25" is an estimate: the source (e.g. the official mem
 server, which keeps no timestamps) gave none, so the import uses the oldest record date,
 by which the fact existed at the latest.
 
-Edits are versioned and recorded as that client. The token stays in the browser tab
-unless you tick "remember"; the page itself holds no data. It works on a phone too.
+Edits are versioned and recorded as the logged-in client (`web-ui` after a login link).
+Revoking `web-ui` logs out every browser. The page itself holds no data. It works on a
+phone too.
 
 `memcairn chronicle "FireClu3"` prints everything memory knows about a topic in date
 order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup
@@ -376,8 +338,9 @@ benchmark. Every tool call is logged with its query text and kept 30 days; set
 `MEMCAIRN_LOG_QUERIES=0` to log costs only.
 
 ```bash
+docker compose exec memcairn memcairn add-machine <name> # pairing code for a new machine
 docker compose exec memcairn memcairn token list          # clients, scope, last seen
-docker compose exec memcairn memcairn token revoke <name> # disconnect a machine
+docker compose exec memcairn memcairn token revoke <name> # disconnect a machine (and its sessions)
 docker compose exec memcairn memcairn stats               # counts
 docker compose exec memcairn memcairn export /data/export.json
 ```
@@ -497,7 +460,8 @@ memcairn import claude-memory ~/.claude/projects/<project>/memory
 
 ## 6. Network and security
 
-- Tokens are required on every request. A request without a valid token gets `401`.
+- A token is required on every request; without a valid one the answer is `401`.
+  Tokens, OAuth tokens and one-time codes are stored as hashes only.
 - The memory holds whatever your agents learned: hostnames, internal IPs, project
   details. Treat it like a password manager. **Keep it on a private network (LAN/VPN)
   and use the token as a second layer**, rather than exposing it to the internet with
@@ -577,9 +541,8 @@ tool-list cost, so updating the prompts (section 3) is the better fix.
 
 ## 8. Troubleshooting
 
-Start with `memcairn doctor` (`uvx --from git+https://github.com/shanislav/memcairn memcairn doctor`
-on a client without Memcairn installed). It reads the URL and token from the `memory`
-entry in `~/.claude.json` and checks:
+Start with `memcairn doctor`. It reads the server and token from `~/.memcairn/client.toml`
+or the `memory` entry in `~/.claude.json` and checks:
 
 - every MCP config that can define a server with that name, including the ignored
   `settings.json` and desktop-app configs, and which of them wins;
@@ -596,6 +559,7 @@ It only reports and never changes anything. The exit code is 1 when something is
 | Agent has `search_nodes`/`read_graph` instead of `recall` | Another server named `memory` (old `server-memory` in a project `.mcp.json`) wins the name clash; see section 2. |
 | `could not resolve host` while public DNS works | Broken hosts entry, e.g. glued onto the previous line (`0.0.0.0 example.com192.168.1.10 memory…`); see section 6. |
 | `401` | Missing or wrong token, or a revoked client. |
+| `memcairn pair` says the code was refused | The code was mistyped, used already or is older than 10 minutes; make a new one. |
 | `403` from the proxy | Client IP not in the proxy allowlist (often the split-VPN case in section 6). |
 | `421` / `Invalid Host header` | `MEMCAIRN_PUBLIC_URL` hostname doesn't match the URL the client uses, or the proxy doesn't pass `Host`. |
 | `claude mcp list` shows failed | Test with `curl -X POST https://memory.example.com/mcp -H "Authorization: Bearer <token>" -d '{}'`. You should get a JSON-RPC error, not 401/403. |

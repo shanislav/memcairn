@@ -1,6 +1,6 @@
 # Example deployment. Put TLS in front (nginx/caddy) and keep it on a private network.
 #   docker compose up -d
-#   docker compose exec memcairn memcairn token add my-laptop
+#   docker compose exec memcairn memcairn login-link     # web UI, then "Add machine"
 services:
   memcairn:
     build: .

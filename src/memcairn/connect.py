@@ -40,7 +40,10 @@ def http_entry(url: str, token: str) -> dict:
 
 
 def stdio_entry() -> dict:
-    return {"type": "stdio", "command": _exe(), "args": ["serve"], "env": {}}
+    import socket
+
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", socket.gethostname()) or "local"
+    return {"type": "stdio", "command": _exe(), "args": ["serve", "--client", name], "env": {}}
 
 
 def _is_ours(group: dict) -> bool:

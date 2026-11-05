@@ -436,6 +436,25 @@ def login_link(db: Path = DbOpt,
                "minutes; the browser then stays logged in for 7 days)")
 
 
+@app.command("add-machine")
+def add_machine(name: str = typer.Argument(..., help="Name for the new machine or app."),
+                db: Path = DbOpt,
+                url: str = typer.Option(None, envvar="MEMCAIRN_PUBLIC_URL",
+                                        help="Public server URL.")):
+    """Print a one-time pairing code (10 minutes) for a new machine. Run it on the server;
+    the same as Add machine in the web UI."""
+    from . import pairing
+
+    try:
+        code = pairing.create(open_store(db, vectors=False), "pair", name, by="cli")
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+    base = (url or "https://<your-server>").rstrip("/").removesuffix("/mcp")
+    typer.echo(f"On the new machine:  memcairn pair {base} {code}\n"
+               f"claude.ai / mobile:  add the connector {base}/mcp and enter {code} when asked\n"
+               f"(single use, valid {pairing.PAIR_TTL // 60} minutes)")
+
+
 @app.command()
 def ui(db: Path = DbOpt, port: int = typer.Option(0, help="Port; 0 picks a free one."),
        no_browser: bool = typer.Option(False, help="Only print the link.")):

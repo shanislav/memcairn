@@ -1,104 +1,74 @@
 # Memcairn
 
-Self-hosted long-term memory for AI agents, served over MCP.
+Long-term memory for Claude Code (and other MCP clients) that you host yourself, shared by
+all your machines.
 
-*A cairn is the pile of stones hikers leave to mark a trail. Every agent session adds a
-stone; the next one finds the way.*
+*A cairn is the pile of stones hikers leave to mark a trail. Every session adds a stone;
+the next one finds the way.*
 
-One server, many clients: several Claude Code instances, server-side agents and
-claude.ai can share the same memory without overwriting each other.
+Claude Code already remembers how you like to work (`CLAUDE.md`, auto memory), but only
+on one machine, and only what fits into every session. Memcairn adds the rest: facts
+about your projects, servers, decisions and todos, searched when needed, the same on
+your laptop, your server and the Claude phone app.
 
-> Status: pre-alpha, phase 2 of the [roadmap](DESIGN.md#roadmap): core store, full-text
-> recall, local semantic search in deep mode, HTTP with tokens, import from the official
-> memory server.
+## Install
 
-## Why
+Paste this into Claude Code:
 
-- **Small context cost** — the whole tool list is ~900 tokens; a recall returns 5 one-line
-  hits (~250 tokens) and full text only for what the model asks for.
-- **Instant writes** — storing a memory never waits for an LLM.
-- **Safe for concurrent clients** — one SQLite writer, versioning, idempotency keys.
-- **Nothing lost silently** — facts are superseded, not overwritten; full history and undo.
-- **Transparent** — every result can show its score breakdown and provenance.
-- **No lock-in** — importer for `@modelcontextprotocol/server-memory`, JSON export.
+> Install Memcairn for me, following https://github.com/shanislav/memcairn/blob/main/INSTALL.md
 
-## Benchmark
+Claude asks whether the memory should stay on this computer or be shared through a
+server, sets it up and checks that it works. You never copy a token: machines connect
+with a one-time code. [INSTALL.md](INSTALL.md) is what Claude follows; you can follow it
+yourself just as well.
 
-On 998 real facts with 50 queries, compared with the official `server-memory`
-([details and caveats](BENCHMARK.md), [feature comparison](COMPARISON.md)):
+The short version:
+
+```bash
+# only this computer
+uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
+memcairn connect --local
+
+# several computers: run the server (Docker), then connect each machine
+docker compose up -d && docker compose exec memcairn memcairn login-link   # web UI
+memcairn pair https://memory.example.com K7QM-42XD    # code from "Add machine"
+```
+
+## What you get
+
+- **A short overview at every session start** (pinned facts, open todos, the most used
+  facts; ~900 tokens at most) and a `recall` tool for the rest.
+- **Small context cost.** The tool list is ~900 tokens; a recall returns five one-line
+  hits (~200 tokens), full text only for what the model asks for.
+- **Writes are instant**: no LLM call when storing.
+- **Nothing is lost silently**: every change is versioned, outdated facts are superseded
+  rather than overwritten, todos are closed as done or dropped.
+- **Shared documents** (a server inventory, plans) synced to the files you choose, with
+  three-way merge; optionally Claude Code's own auto memory carried between your
+  machines.
+- **A web UI** to browse, search, edit and clean up memory, add machines and revoke them.
+- **claude.ai and the Claude apps** through a built-in OAuth server (opt-in).
+- **Credentials are refused** on write; `memcairn purge` removes a leaked one for good.
+- **One SQLite file.** Semantic search runs locally on the CPU; nothing goes to an
+  external service.
+
+## How well it finds things
+
+On 998 real facts with 50 queries, against the official
+`@modelcontextprotocol/server-memory` ([method and caveats](BENCHMARK.md)):
 
 | | official | Memcairn |
 |---|---|---|
-| hit@5 | 24% | **98%** |
+| right answer in the top 5 | 24% | **98%** |
 | tokens per query (mean / max) | 2,055 / 35,765 | **198 / 449** |
-| tool list (every turn) | 1,247 | **919** |
 
-## Connect (if someone runs a server for you)
+## Documentation
 
-You get a URL and a token. In Claude Code:
-
-```
-/plugin marketplace add shanislav/memcairn
-/plugin install memcairn@memcairn
-```
-
-Enter the URL and token when asked (the token goes to the system keychain), restart
-Claude Code. Done: memory tools, a short memory overview at session start, and the
-usage rules come with it. Nothing else on your machine is changed. No `/plugin` in your
-client (e.g. the desktop app)? See [docs/setup.md](docs/setup.md#claude-code-the-plugin-recommended).
-
-## Run your own server
-
-```bash
-docker compose up -d                                       # see docs/setup.md
-docker compose exec memcairn memcairn token add laptop     # prints a token + the steps above, ready to send
-```
-
-Put it behind TLS (nginx/caddy) and keep it on a private network. The full guide covers
-deployment, multiple machines, scopes, migration and troubleshooting:
-**[docs/setup.md](docs/setup.md)**.
-
-### Advanced (optional)
-
-- `uv tool install git+https://github.com/shanislav/memcairn` gives you the `memcairn`
-  CLI on a client: `memcairn setup` offers to share Claude Code's own auto memory across your machines
-  and to sync files (each change shown as a diff, backed up, y/n; `memcairn unsetup`
-  reverts), `memcairn doctor` checks the setup.
-- Without the plugin, or for other MCP clients:
-  `claude mcp add --transport http memory https://memory.example.com/mcp --header "Authorization: Bearer <token>"`
-- Browse and edit memory in a browser at `https://<server>/ui` (log in with a client token).
-- Local only, no server: `claude mcp add memcairn -- memcairn serve --client my-laptop`
-- Migrate the official memory server: `memcairn import server-memory ~/.claude/memory.json`
-
-## Tools
-
-| Tool | Purpose |
-|---|---|
-| `context` | pinned facts, open todos and the most important facts, for session start (≤ 500 tokens; also as plain text at `GET /context` for a SessionStart hook) |
-| `recall` | ranked search; `mode=deep` when nothing is found; `explain=true` shows scores; time words in the query ("last week", "v októbri", "2026-10") filter by date |
-| `get` | full text of selected ids, optionally with version history |
-| `remember` | store one short atomic fact; returns possible duplicates |
-| `update` | edit (versioned); `supersede=true` when the fact changed in reality; `status=done` or `dropped` closes a todo |
-| `forget` | soft delete, `undo=true` restores |
-| `link` | relation between entities |
-
-`--compat` additionally exposes the tool names of the official memory server
-(`create_entities`, `search_nodes`, `open_nodes`, …) for existing prompts; it roughly
-doubles the tool-list cost.
-
-Writes that look like credentials (API keys, tokens, `password=…`) are refused. New facts
-that look like an existing one (same words, or same meaning on the same topic) come back as
-candidates to update instead.
-
-**Shared documents** (server inventory, the shared part of `CLAUDE.md`, long plans) are
-versioned on the server and synced to the paths you choose with `memcairn sync`. Edits on
-different machines are merged three-way, and overlapping edits are never overwritten.
-
-`memcairn chronicle "topic"` writes everything memory knows about a topic as a dated
-markdown story, including earlier versions that were replaced. It's documentation
-generated on demand, with nothing to maintain. `memcairn doctor` checks a client's setup
-and the server's database. It is a CLI
-command, not an MCP tool, so it costs agents nothing.
+- [INSTALL.md](INSTALL.md): installation, step by step
+- [docs/setup.md](docs/setup.md): the full guide (server, clients, web UI, documents and
+  sync, security, migration, troubleshooting)
+- [DESIGN.md](DESIGN.md): how it works and why
+- [COMPARISON.md](COMPARISON.md): other memory systems
 
 ## Development
 
@@ -107,6 +77,4 @@ uv venv && uv pip install -e ".[dev]"
 uv run pytest
 ```
 
-## License
-
-MIT
+MIT license.

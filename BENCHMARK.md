@@ -116,7 +116,9 @@ let a Slovak question find a fact written in another grammatical case or without
   Embedding times are on 3 server CPU cores. `Qwen3-Embedding-0.6B` didn't fit in a 6 GB
   memory limit. The static potion model was both the best and by far the cheapest.
 - **Still missed:** "how to deploy the app" against a fact titled "deploy procedure" in
-  Slovak. The small model doesn't link the Slovak verb *nasadiť* to *deploy*.
+  Slovak. The small model doesn't link the Slovak verb *nasadiť* to *deploy*. Later
+  synonym groups in plain recall (`nasad deploy`, …) fixed this one; the tables above are
+  from the original run.
 - **This is not a comparison with Mem0, Graphiti, Hindsight and similar systems.** Those
   need an LLM on every write; see [COMPARISON.md](COMPARISON.md) for a feature comparison.
 

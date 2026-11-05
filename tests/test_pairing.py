@@ -110,7 +110,7 @@ def test_connect_local_uses_stdio_and_adds_the_hook_once(tmp_path):
     connect_local(home, lambda s: None)
     connect_local(home, lambda s: None)
     entry = json.loads((home / ".claude.json").read_text())["mcpServers"]["memory"]
-    assert entry["type"] == "stdio" and entry["args"] == ["serve"]
+    assert entry["type"] == "stdio" and entry["args"][:2] == ["serve", "--client"]
     settings = json.loads((home / ".claude" / "settings.json").read_text())
     assert len(settings["hooks"]["SessionStart"]) == 1
 
@@ -133,3 +133,20 @@ def test_oauth_approval_takes_a_pairing_code(tmp_path):
     url = provider.approve("req1", code)
     assert url.startswith("https://claude.ai/api/mcp/auth_callback?code=")
     assert store.conn.execute("SELECT 1 FROM client WHERE name = 'claude-ai'").fetchone()
+
+
+def test_cli_add_machine_and_login_link_print_working_codes(tmp_path):
+    from typer.testing import CliRunner
+
+    from memcairn.cli import app
+
+    db = tmp_path / "m.db"
+    run = CliRunner().invoke
+    out = run(app, ["add-machine", "laptop", "--db", str(db), "--url", "https://m.example"])
+    assert out.exit_code == 0 and "memcairn pair https://m.example " in out.output
+    code = out.output.split("memcairn pair https://m.example ")[1].split()[0]
+    store = Store(connect(db))
+    assert pairing.pair(store, code)[0] == "laptop"
+    out = run(app, ["login-link", "--db", str(db), "--url", "https://m.example"])
+    assert "https://m.example/ui#login=" in out.output
+    assert run(app, ["add-machine", "bad name", "--db", str(db)]).exit_code != 0

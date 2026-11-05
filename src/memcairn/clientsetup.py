@@ -242,7 +242,8 @@ def run_setup(home: Path, confirm: Callable[[Change, str], bool],
               echo: Callable[[str], None], cwd: Path | None = None,
               disable_auto_memory: bool = False) -> int:
     changes = plan(home, cwd, disable_auto_memory=disable_auto_memory)
-    if not plugin_enabled(home):
+    if not plugin_enabled(home) and not (_load(home / ".claude.json").get("mcpServers")
+                                         or {}).get("memory"):
         echo("The Memcairn plugin is not enabled in Claude Code. Install it first:\n"
              "  /plugin marketplace add shanislav/memcairn\n"
              "  /plugin install memcairn@memcairn\n"
