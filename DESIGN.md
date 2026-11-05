@@ -163,7 +163,6 @@ database.
 - Consolidation proposals beyond long and status-like memories: similar pairs, stale
   todos, overgrown entities; optionally with an LLM.
 - Project scopes keyed by the normalized git remote.
-- A PyPI release, so `uvx memcairn` works without git.
 
 Ideas borrowed from other projects: bi-temporal facts and invalidation (Graphiti),
 supersede chains (mcp-memory-service, supermemory), ranked retrieval with a token budget

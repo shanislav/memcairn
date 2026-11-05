@@ -1,6 +1,6 @@
 # Memcairn
 
-![Memcairn: self-hosted long-term memory for Claude, shared by all your machines](docs/banner.jpeg)
+![Memcairn: self-hosted long-term memory for Claude, shared by all your machines](https://raw.githubusercontent.com/shanislav/memcairn/main/docs/banner.jpeg)
 
 Long-term memory for Claude Code (and other MCP clients) that you host yourself, shared by
 all your machines.
@@ -21,14 +21,14 @@ Paste this into Claude Code:
 
 Claude asks whether the memory should stay on this computer or be shared through a
 server, sets it up and checks that it works. You never copy a token: machines connect
-with a one-time code. [INSTALL.md](INSTALL.md) is what Claude follows; you can follow it
+with a one-time code. [INSTALL.md](https://github.com/shanislav/memcairn/blob/main/INSTALL.md) is what Claude follows; you can follow it
 yourself just as well.
 
 The short version:
 
 ```bash
 # only this computer
-uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
+uv tool install "memcairn[vector]"
 memcairn connect --local
 
 # several computers: run the server (Docker, see docs/setup.md), then connect each machine
@@ -59,7 +59,7 @@ memcairn pair https://memory.example.com K7QM-42XD    # code from "Add machine"
 ## How well it finds things
 
 On 998 real facts with 50 queries, against the official
-`@modelcontextprotocol/server-memory` ([method and caveats](BENCHMARK.md)):
+`@modelcontextprotocol/server-memory` ([method and caveats](https://github.com/shanislav/memcairn/blob/main/BENCHMARK.md)):
 
 | | official | Memcairn |
 |---|---|---|
@@ -68,12 +68,12 @@ On 998 real facts with 50 queries, against the official
 
 ## Documentation
 
-- [INSTALL.md](INSTALL.md): installation, step by step
-- [docs/setup.md](docs/setup.md): the full guide (server, clients, web UI, documents and
+- [INSTALL.md](https://github.com/shanislav/memcairn/blob/main/INSTALL.md): installation, step by step
+- [docs/setup.md](https://github.com/shanislav/memcairn/blob/main/docs/setup.md): the full guide (server, clients, web UI, documents and
   sync, security, migration, troubleshooting)
-- [DESIGN.md](DESIGN.md): how it works and why
-- [COMPARISON.md](COMPARISON.md): other memory systems
-- [CHANGELOG.md](CHANGELOG.md): what changed
+- [DESIGN.md](https://github.com/shanislav/memcairn/blob/main/DESIGN.md): how it works and why
+- [COMPARISON.md](https://github.com/shanislav/memcairn/blob/main/COMPARISON.md): other memory systems
+- [CHANGELOG.md](https://github.com/shanislav/memcairn/blob/main/CHANGELOG.md): what changed
 
 ## Development
 

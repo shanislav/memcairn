@@ -1,7 +1,8 @@
 name: release
 
-# For a tag vX.Y.Z: the Docker image ghcr.io/<repo>:X.Y.Z and :latest (amd64, arm64), then
-# a GitHub release with the matching CHANGELOG section. Nothing runs on plain pushes.
+# For a tag vX.Y.Z: the Docker image ghcr.io/<repo>:X.Y.Z and :latest (amd64, arm64), the
+# package on PyPI (trusted publishing: no token stored here), then a GitHub release with the
+# matching CHANGELOG section. Nothing runs on plain pushes.
 
 on:
   push:
@@ -40,8 +41,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write  # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Version matches the tag
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$v\"" pyproject.toml || { echo "pyproject.toml is not $v"; exit 1; }
+      - run: uv pip install -e ".[dev]" && uv run pytest -q
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
   github-release:
-    needs: image
+    needs: [image, pypi]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -68,8 +68,8 @@ server, add `MEMCAIRN_EMBED_MODEL=none` to `.env`. Either can be changed later.
 ## 3A. Only this computer
 
 ```bash
-uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"   # full
-uv tool install git+https://github.com/shanislav/memcairn                       # basic
+uv tool install "memcairn[vector]"   # full
+uv tool install memcairn             # basic
 memcairn connect --local
 ```
 
@@ -149,7 +149,7 @@ You need a pairing code. Either:
 Then, on this computer:
 
 ```bash
-uv tool install git+https://github.com/shanislav/memcairn
+uv tool install memcairn
 memcairn pair https://memory.example.com K7QM-42XD
 ```
 
@@ -206,8 +206,7 @@ restart; write the test fact below in the next session, with this machine's own 
   it with `recall`.
 
 Updating later: on the server `docker compose pull && docker compose up -d`; on each
-machine the install command again with `--reinstall` (e.g.
-`uv tool install --reinstall git+https://github.com/shanislav/memcairn`).
+machine `uv tool upgrade memcairn`.
 
 Finally tell the user in two or three sentences what they have: where the memory lives,
 how to browse it (`memcairn ui` or `https://<server>/ui`), how to add another machine

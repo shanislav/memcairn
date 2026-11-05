@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-11-05
+
+- On PyPI: `uv tool install memcairn` (add `[vector]` for search by meaning), updates with
+  `uv tool upgrade memcairn`. Installing from git still works.
+- Package metadata (links, classifiers); the source package leaves out images and CI files.
+
 ## 0.1.0 — 2026-11-05
 
 First release. Self-hosted long-term memory for Claude Code, claude.ai and other MCP

@@ -20,7 +20,7 @@ Claude Code follow [INSTALL.md](../INSTALL.md).
 no server to run and no token. Skip the rest of this section:
 
 ```bash
-uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
+uv tool install "memcairn[vector]"
 memcairn connect --local      # MCP entry in ~/.claude.json + session-start hook, backed up
 memcairn ui                   # browse it; opens the browser, logs in by itself
 ```
@@ -70,9 +70,8 @@ server {
 
 **Updating.** Server: `docker compose pull && docker compose up -d` (built yourself:
 `git pull && docker compose build && docker compose up -d`); the database is migrated on
-start. Each machine: run its install command again with `--reinstall`, e.g.
-`uv tool install --reinstall git+https://github.com/shanislav/memcairn` (add `[vector]`
-as at install for a local memory). `memcairn --version` shows what you have.
+start. Each machine: `uv tool upgrade memcairn`. `memcairn --version` shows what you
+have. (The development version: `uv tool install --reinstall git+https://github.com/shanislav/memcairn`.)
 
 The database is
 `data/memcairn.db`. Back it up with
@@ -92,7 +91,7 @@ in `memcairn.db-wal` next to it.
 2. On the new machine:
 
    ```bash
-   uv tool install git+https://github.com/shanislav/memcairn
+   uv tool install memcairn
    memcairn pair https://memory.example.com K7QM-42XD
    ```
 
