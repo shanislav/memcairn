@@ -78,10 +78,12 @@ def register(mcp, store: Store, authorize) -> None:
         if status:
             where.append("m.status = ?")
             args.append(status)
+        order = ("m.updated_at DESC" if p.get("sort") == "changed"
+                 else "m.recorded_at DESC, m.id DESC")  # newest noted first
         rows = store.conn.execute(
             f"""SELECT m.*, e.name AS entity_name FROM memory m
                 LEFT JOIN entity e ON e.id = m.entity_id WHERE {' AND '.join(where)}
-                ORDER BY m.updated_at DESC LIMIT {limit}""", args).fetchall()
+                ORDER BY {order} LIMIT {limit}""", args).fetchall()
         return JSONResponse({"items": [_mem(r, full=False) for r in rows], "parts": []})
 
     async def entities(request, name):

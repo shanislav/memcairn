@@ -96,3 +96,15 @@ def test_rename_merges_into_an_existing_entity(http):
     assert names.get("immich") == 2 and "Immich photos" not in names
     assert http.post("/api/entity/rename", headers=H,
                      json={"from": "nope", "to": "x"}).status_code == 404
+
+
+def test_list_is_newest_noted_first_or_recently_changed(http):
+    store = http.store
+    old, _ = store.remember("noted long ago", recorded_at="2026-05-01T00:00:00Z")
+    store.update(old["id"], content="noted long ago, cleaned today")
+    store.remember("noted later", recorded_at="2026-09-01T00:00:00Z")
+    noted = [m["content"] for m in http.get("/api/search", headers=H).json()["items"]]
+    changed = [m["content"] for m in http.get("/api/search", params={"sort": "changed"},
+                                               headers=H).json()["items"]]
+    assert noted.index("noted later") < noted.index("noted long ago, cleaned today")
+    assert changed[0] == "noted long ago, cleaned today"

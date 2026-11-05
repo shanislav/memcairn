@@ -72,7 +72,7 @@ th { color: var(--muted); font-weight: 500; }
 .panel h3 { margin: 0 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
 .bar-row { display: grid; grid-template-columns: 120px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; margin: 3px 0; }
 .bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .8; }
+.hbar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .8; }
 .spark { display: flex; align-items: flex-end; gap: 3px; height: 70px; }
 .spark div { flex: 1; background: var(--accent); opacity: .75; border-radius: 3px 3px 0 0; min-height: 2px; }
 .spark-l { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
@@ -117,7 +117,9 @@ th { color: var(--muted); font-weight: 500; }
       <datalist id="ents"></datalist>
       <select id="fstatus"><option value="">any status</option><option>open</option>
         <option>done</option><option>dropped</option></select>
-      <label class="meta"><input type="checkbox" id="deep"> deep</label>
+      <select id="fsort" title="order of the list when not searching"><option value="noted">newest first</option>
+        <option value="changed">recently changed</option></select>
+      <label class="meta" style="align-self:center"><input type="checkbox" id="deep"> deep</label>
       <button class="ghost" id="new">+ New</button>
     </div>
     <div class="meta" id="count"></div>
@@ -220,8 +222,8 @@ async function loadOverview() {
       <div class="mini"><span class="t">sessions started (overview injected)</span><b>${hook.calls || 0}</b></div>
       <div class="mini"><span class="t">facts written</span><b>${(u.remember || {}).calls || 0}</b></div></div>
     <div class="panel"><h3>Machines and clients</h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span></div>`).join("")}</div>
-    <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="bar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
-    <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="bar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
+    <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="hbar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
+    <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="hbar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
     <div class="panel"><h3>Open todos <button class="linkish" data-go="todos">all ${o.open_todos}</button></h3>${o.todos.map(t => `<div class="mini"><span class="t" data-id="${t.id}" title="${esc(t.content)}">${esc(t.content)}</span><button class="linkish" data-done="${t.id}">done</button><button class="linkish" data-drop="${t.id}">drop</button></div>`).join("") || '<div class="meta">none</div>'}</div>
     <div class="panel"><h3>Tool calls, last 7 days</h3><table><tr><th>tool</th><th>calls</th><th>avg tok</th><th>max</th><th>empty</th><th>ms</th></tr>
       ${Object.values(u).sort((a, b) => b.calls - a.calls).map(x => `<tr><td>${esc(x.tool)}</td><td>${x.calls}</td><td>${x.avg_tokens}</td><td>${x.max_tokens}</td><td>${x.empty}</td><td>${x.avg_ms}</td></tr>`).join("") || '<tr><td colspan="6" class="meta">no calls</td></tr>'}</table></div>
@@ -255,7 +257,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 
 let timer;
 ["#q", "#fent"].forEach(s => $(s).oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); });
-["#ftype", "#fstatus", "#deep"].forEach(s => $(s).onchange = search);
+["#ftype", "#fstatus", "#deep", "#fsort"].forEach(s => $(s).onchange = search);
 
 function dateChip(m) {
   // the date the fact was first noted; "≈" when the source gave none and it was estimated
@@ -277,7 +279,7 @@ function chips(m) {
 
 async function search() {
   const p = new URLSearchParams({ q: $("#q").value, type: $("#ftype").value, entity: $("#fent").value,
-    status: $("#fstatus").value, deep: $("#deep").checked ? "1" : "0", limit: "60" });
+    status: $("#fstatus").value, deep: $("#deep").checked ? "1" : "0", sort: $("#fsort").value, limit: "60" });
   try {
     const r = await api("/api/search?" + p);
     const parts = (r.parts || []).map(c => `<div class="item" data-doc="${esc(c.doc)}" data-anchor="${esc(c.anchor)}">
@@ -285,7 +287,7 @@ async function search() {
       <div>${esc(c.content.slice(0, 300))}</div></div>`).join("");
     const items = r.items.map(m => `<div class="item" data-id="${m.id}"><div class="meta">${chips(m)}</div>
       <div>${esc(m.content)}</div></div>`).join("");
-    $("#count").textContent = $("#q").value ? `${r.items.length} facts${r.parts?.length ? `, ${r.parts.length} document parts` : ""}${r.coverage < .5 ? " · low confidence" : ""}` : "most recently changed";
+    $("#count").textContent = $("#q").value ? `${r.items.length} facts${r.parts?.length ? `, ${r.parts.length} document parts` : ""}${r.coverage < .5 ? " · low confidence" : ""}` : ($("#fsort").value === "changed" ? "recently changed first" : "newest first (by the date noted)");
     $("#results").innerHTML = parts + items || `<div class="empty">Nothing found${$("#deep").checked ? "" : " — try deep"}.</div>`;
   } catch (e) { $("#results").innerHTML = `<div class="msg">${esc(e.message)}</div>`; }
 }
