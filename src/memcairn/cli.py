@@ -14,7 +14,7 @@ import typer
 
 from . import importers
 from .db import connect, now
-from .server import build, hash_token
+
 from .store import Store
 from .vectors import from_env
 
@@ -106,6 +106,8 @@ def _review_forever(store: Store, hours: float) -> None:
 def _serve(store, transport, host, port, public_url, allowed_host, no_auth, compat, client,
            oauth=False):
     if transport == "stdio":
+        from .server import build
+
         build(store, compat=compat, stdio_client=client).run("stdio")
         return
     import anyio
@@ -114,6 +116,8 @@ def _serve(store, transport, host, port, public_url, allowed_host, no_auth, comp
     auth_url = None if no_auth else (public_url or f"http://{host}:{port}")
     if oauth and not public_url:
         raise typer.BadParameter("--oauth needs --public-url (the address claude.ai reaches)")
+    from .server import build
+
     server = build(store, compat=compat, auth_url=auth_url, oauth=oauth)
     hosts = [f"{host}:*", "127.0.0.1:*", "localhost:*", *(allowed_host or [])]
     if public_url:
@@ -132,6 +136,8 @@ def token_add(name: str, scope: str = typer.Option("global", help="Default scope
                                       help="Public server URL, for the connect instructions."),
               quiet: bool = typer.Option(False, "--quiet", help="Print only the token.")):
     """Create a client and print its token (shown once) with ready connect instructions."""
+    from .server import hash_token
+
     store = open_store(db, vectors=False)
     token = "mcn_" + secrets.token_urlsafe(32)
     with store._tx():
