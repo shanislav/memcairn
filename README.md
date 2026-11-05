@@ -29,7 +29,7 @@ The short version:
 uv tool install "memcairn[vector] @ git+https://github.com/shanislav/memcairn"
 memcairn connect --local
 
-# several computers: run the server (Docker), then connect each machine
+# several computers: run the server (Docker, see docs/setup.md), then connect each machine
 docker compose up -d && docker compose exec memcairn memcairn login-link   # web UI
 memcairn pair https://memory.example.com K7QM-42XD    # code from "Add machine"
 ```
@@ -69,6 +69,7 @@ On 998 real facts with 50 queries, against the official
   sync, security, migration, troubleshooting)
 - [DESIGN.md](DESIGN.md): how it works and why
 - [COMPARISON.md](COMPARISON.md): other memory systems
+- [CHANGELOG.md](CHANGELOG.md): what changed
 
 ## Development
 

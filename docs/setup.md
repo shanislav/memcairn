@@ -29,11 +29,16 @@ memcairn ui                   # browse it; opens the browser, logs in by itself
 reverse proxy:
 
 ```bash
-git clone https://github.com/shanislav/memcairn && cd memcairn
+mkdir memcairn && cd memcairn
+curl -fsSLO https://raw.githubusercontent.com/shanislav/memcairn/main/compose.yml
 mkdir -p data && sudo chown 10001 data          # the container runs as uid 10001
 echo "MEMCAIRN_PUBLIC_URL=https://memory.example.com" > .env   # the address clients use
-docker compose up -d --build
+docker compose up -d
 ```
+
+The image `ghcr.io/shanislav/memcairn` is built for amd64 and arm64 (a Raspberry Pi 4/5
+works): `latest` is the newest release, `X.Y.Z` a fixed one. To build it yourself, clone
+the repository and replace `image:` with `build: .` in `compose.yml`.
 
 `MEMCAIRN_PUBLIC_URL` is the address clients use. It turns on authentication and the
 Host-header check, and must match the hostname exactly. Then open the web UI:
@@ -63,7 +68,13 @@ server {
 }
 ```
 
-To update: `git pull && docker compose build && docker compose up -d`. The database is
+**Updating.** Server: `docker compose pull && docker compose up -d` (built yourself:
+`git pull && docker compose build && docker compose up -d`); the database is migrated on
+start. Each machine: run its install command again with `--reinstall`, e.g.
+`uv tool install --reinstall git+https://github.com/shanislav/memcairn` (add `[vector]`
+as at install for a local memory). `memcairn --version` shows what you have.
+
+The database is
 `data/memcairn.db`. Back it up with
 `docker compose exec memcairn memcairn backup /data/backup-$(date +%F).db`, which is safe
 while the server runs. Don't copy `memcairn.db` on its own: recent writes may still sit

@@ -1,9 +1,12 @@
 # Example deployment. Put TLS in front (nginx/caddy) and keep it on a private network.
+#   echo "MEMCAIRN_PUBLIC_URL=https://memory.example.com" > .env
+#   mkdir -p data && sudo chown 10001 data
 #   docker compose up -d
 #   docker compose exec memcairn memcairn login-link     # web UI, then "Add machine"
+# Update: docker compose pull && docker compose up -d
 services:
   memcairn:
-    build: .
+    image: ghcr.io/shanislav/memcairn:latest   # or build it from a clone: `build: .`
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
