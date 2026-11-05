@@ -354,7 +354,12 @@ one for yourself, e.g. `token add browser`).
   name (✎ next to it on the overview).
 - **Documents**: read and edit shared documents. Saving makes a new version; machines
   that sync the document get it at their next session start or end.
-- **Review** and **Stats**: what could be cleaned up, and detailed numbers.
+- **Review**: what could be cleaned up, biggest token savings first.
+
+Dates in lists are when a fact was first noted; the last change is in its details. A
+date shown as "≈ 2026-05-25" is an estimate: the source (e.g. the official memory
+server, which keeps no timestamps) gave none, so the import uses the oldest record date,
+by which the fact existed at the latest.
 
 Edits are versioned and recorded as that client. The token stays in the browser tab
 unless you tick "remember"; the page itself holds no data. It works on a phone too.

@@ -32,21 +32,35 @@ def read_server_memory(path: str | Path) -> tuple[list[dict], list[dict]]:
 DATE = re.compile(r"\b(20\d\d-[01]\d-[0-3]\d)\b")
 
 
-def fact_dates(observations: list[str], fallback: str | None = None) -> list[str | None]:
-    """When each fact was written, as far as the text says.
+ESTIMATED = "date:estimated"  # tag: the text gave no date, recorded_at is a guess
+# A record date opens the fact ("2026-10-01 switched…") or heads it, followed by a colon
+# or dash ("FIX Chimera1C7 (.211) 2026-07-01: …"), within the first 40 characters.
+RECORD = re.compile(r"^\W*(20\d\d-[01]\d-[0-3]\d)\b|^.{0,40}?\b(20\d\d-[01]\d-[0-3]\d)\s*[:—–-]")
+
+
+def record_date(obs: str) -> str | None:
+    """The date a fact was written, if it says. A date inside the text ("battery made
+    2005-10-06, …") is about something else and says nothing about when it was noted."""
+    m = RECORD.search(obs)
+    day = (m.group(1) or m.group(2)) if m else None
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    return day if day and day <= today else None
+
+
+def fact_dates(observations: list[str], fallback: str | None = None
+               ) -> list[tuple[str | None, bool]]:
+    """(recorded_at, estimated) per fact, as far as the text says.
 
     server-memory keeps no timestamps, but agents often start facts with a date
     ("2026-10-01: switched prod to the fork"). Facts without one inherit the newest date
-    of their entity. An entity with no dates at all gets `fallback` (the oldest date of
-    the whole import), so it doesn't look like the most recent work.
+    of their entity. An entity with no dates at all gets `fallback` (the oldest record
+    date of the whole import: it existed by then at the latest). Inherited and fallback
+    dates are marked as estimated.
     """
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    found = []
-    for obs in observations:
-        m = DATE.search(obs)
-        found.append(m.group(1) if m and m.group(1) <= today else None)
+    found = [record_date(o) for o in observations]
     latest = max((d for d in found if d), default=fallback)
-    return [f"{d or latest}T00:00:00Z" if (d or latest) else None for d in found]
+    return [(f"{d or latest}T00:00:00Z" if (d or latest) else None, d is None)
+            for d in found]
 
 
 def import_server_memory(store: Store, path: str | Path, *, scope: str = "global",
@@ -55,19 +69,19 @@ def import_server_memory(store: Store, path: str | Path, *, scope: str = "global
     episode = store.episode(scope, client, raw=f"import from {Path(path).name}")
     stats = {"entities": 0, "facts": 0, "relations": 0, "skipped_secrets": 0}
     store.defer_vectors = True  # embed everything in batches at the end
-    oldest = min((d for e in entities for d in fact_dates(e.get("observations", [])) if d),
-                 default=None)
-    oldest = oldest[:10] if oldest else None
+    oldest = min((d for e in entities for o in e.get("observations", [])
+                  if (d := record_date(o))), default=None)
     for ent in entities:
         name = ent["name"]
         with store._tx():
             store.entity_id(name, scope, ent.get("entityType"))
         stats["entities"] += 1
         observations = ent.get("observations", [])
-        for obs, recorded in zip(observations, fact_dates(observations, oldest)):
+        for obs, (recorded, guess) in zip(observations, fact_dates(observations, oldest)):
             try:
                 store.remember(obs, entity=name, scope=scope, client=client, episode_id=episode,
-                               recorded_at=recorded, check_duplicates=False)
+                               recorded_at=recorded, check_duplicates=False,
+                               tags=[ESTIMATED] if guess and recorded else None)
                 stats["facts"] += 1
             except SecretError:
                 stats["skipped_secrets"] += 1

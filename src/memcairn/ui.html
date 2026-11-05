@@ -102,7 +102,6 @@ th { color: var(--muted); font-weight: 500; }
     <button data-tab="memory">Memory</button>
     <button data-tab="docs">Documents</button>
     <button data-tab="review">Review</button>
-    <button data-tab="stats">Stats</button>
   </nav>
   <span style="flex:1"></span>
   <span class="meta" id="who"></span>
@@ -126,7 +125,6 @@ th { color: var(--muted); font-weight: 500; }
   </section>
   <section data-pane="docs" hidden><div class="list" id="doclist"></div><div id="docview"></div></section>
   <section data-pane="review" hidden><div id="reviewlist"></div></section>
-  <section data-pane="stats" hidden><div id="statsview"></div></section>
 </main>
 </div>
 
@@ -225,6 +223,9 @@ async function loadOverview() {
     <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="bar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
     <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="bar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
     <div class="panel"><h3>Open todos <button class="linkish" data-go="todos">all ${o.open_todos}</button></h3>${o.todos.map(t => `<div class="mini"><span class="t" data-id="${t.id}" title="${esc(t.content)}">${esc(t.content)}</span><button class="linkish" data-done="${t.id}">done</button><button class="linkish" data-drop="${t.id}">drop</button></div>`).join("") || '<div class="meta">none</div>'}</div>
+    <div class="panel"><h3>Tool calls, last 7 days</h3><table><tr><th>tool</th><th>calls</th><th>avg tok</th><th>max</th><th>empty</th><th>ms</th></tr>
+      ${Object.values(u).sort((a, b) => b.calls - a.calls).map(x => `<tr><td>${esc(x.tool)}</td><td>${x.calls}</td><td>${x.avg_tokens}</td><td>${x.max_tokens}</td><td>${x.empty}</td><td>${x.avg_ms}</td></tr>`).join("") || '<tr><td colspan="6" class="meta">no calls</td></tr>'}</table></div>
+    <div class="panel"><h3>Store</h3>${Object.entries(st).map(([k, v]) => `<div class="mini"><span class="t">${esc(k)}</span><b>${v}</b></div>`).join("")}</div>
     <div class="panel"><h3>Recently changed</h3>${o.recent.map(m => `<div class="mini"><span class="chip">${esc(m.type)}</span><span class="t" data-id="${m.id}" title="${esc(m.content)}">${esc(m.content)}</span><span class="meta">${ago(m.updated_at)}</span></div>`).join("")}</div>
   </div>`;
 }
@@ -256,12 +257,21 @@ let timer;
 ["#q", "#fent"].forEach(s => $(s).oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); });
 ["#ftype", "#fstatus", "#deep"].forEach(s => $(s).onchange = search);
 
+function dateChip(m) {
+  // the date the fact was first noted; "≈" when the source gave none and it was estimated
+  const rec = (m.recorded_at || "").slice(0, 10), chg = (m.updated_at || "").slice(0, 10);
+  const est = (Array.isArray(m.tags) ? m.tags : []).includes("date:estimated");
+  const title = (est ? "estimated: the source gave no date; it existed by then at the latest" : "recorded")
+    + (chg && chg !== rec ? ` · last changed ${chg}` : "");
+  return `<span title="${esc(title)}">${est ? "≈ " : ""}${esc(rec)}</span>`;
+}
+
 function chips(m) {
   const st = m.status ? `<span class="chip ${m.type === "todo" && m.status === "open" ? "todo-open" : ""}">${esc(m.status)}</span>` : "";
   return `<span class="chip">m${m.id}</span><span class="chip">${esc(m.type)}</span>` +
     (m.entity_name ? `<span>${esc(m.entity_name)}</span>` : "") + st +
     (m.pinned ? `<span class="chip">pinned</span>` : "") +
-    `<span>${esc((m.updated_at || m.recorded_at || "").slice(0, 10))}</span>` +
+    dateChip(m) +
     (m.client ? `<span>by ${esc(m.client)}</span>` : "");
 }
 
@@ -296,7 +306,7 @@ async function openMemory(id) {
   $("#detail").innerHTML = `
     <div class="row" style="justify-content:space-between;margin:0"><h2>m${m.id} · v${m.version}</h2>
       <button class="ghost" id="x">Close</button></div>
-    <div class="meta">${chips(m)}${gone ? '<span class="chip">forgotten</span>' : ""}${old ? `<span class="chip">replaced by m${m.superseded_by}</span>` : ""}</div>
+    <div class="meta">${chips(m)}${(m.updated_at || "").slice(0, 10) !== (m.recorded_at || "").slice(0, 10) ? `<span>changed ${esc((m.updated_at || "").slice(0, 10))}</span>` : ""}${gone ? '<span class="chip">forgotten</span>' : ""}${old ? `<span class="chip">replaced by m${m.superseded_by}</span>` : ""}</div>
     <textarea id="content">${esc(m.content)}</textarea>
     <div class="grid">
       <label>type<select id="type">${opts}</select></label>
