@@ -29,7 +29,11 @@ Check, without changing anything:
   is fine);
 - whether a memory server is already configured: an `mcpServers.memory` entry in
   `~/.claude.json` or a project `.mcp.json`, or `claude mcp list`. If there is one
-  (often the official `@modelcontextprotocol/server-memory`), note it for step 5.
+  (often the official `@modelcontextprotocol/server-memory`), note it for step 5;
+- whether this session already has Memcairn tools from a **claude.ai connector** (the
+  user added Memcairn in claude.ai; Claude Code loads claude.ai connectors too). You may
+  use it to look things up, such as the server address, but connect the machine as
+  below anyway and see step 6.
 
 If uv is missing, ask, then install it:
 
@@ -171,6 +175,15 @@ Then remove the old `memory` entry from the configuration (ask first, back up). 
 servers with the same name clash, and the more specific scope wins.
 
 ## 6. Check and finish
+
+If a claude.ai Memcairn connector showed up in step 1, Claude Code now loads the same
+memory twice: twice the tool list in every session, and writes recorded as `claude-ai`
+instead of this machine. Tell the user and offer to turn claude.ai connectors off in
+Claude Code (they keep working in claude.ai and the apps): add
+`"env": {"ENABLE_CLAUDEAI_MCP_SERVERS": "false"}` to `~/.claude/settings.json` (back it
+up; this turns off all claude.ai connectors in Claude Code, so ask whether they use
+others there). Use this machine's own tools from the next session on, not the connector,
+for the test fact below.
 
 - `memcairn doctor` checks the configuration, the connection and the hook; it changes
   nothing. Fix what it reports.

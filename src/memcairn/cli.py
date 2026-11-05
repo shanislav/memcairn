@@ -19,6 +19,20 @@ from .store import Store
 from .vectors import from_env
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+
+def _version(value: bool) -> None:
+    if value:
+        from . import __version__
+
+        typer.echo(f"memcairn {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(version: bool = typer.Option(False, "--version", callback=_version, is_eager=True,
+                                       help="Show the version and exit.")):
+    """Memcairn: self-hosted long-term memory for AI agents over MCP."""
 token_app = typer.Typer(no_args_is_help=True, help="Manage client tokens.")
 import_app = typer.Typer(no_args_is_help=True, help="Import from other memory formats.")
 app.add_typer(token_app, name="token")
