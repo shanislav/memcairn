@@ -183,9 +183,10 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
 
     @mcp.tool(structured_output=False, annotations=READ)
     @safe
-    def context(max_tokens: int = 500, scope: str | None = None) -> str:
-        """Core memory for session start: pinned and most important facts."""
-        return format.context(store.context(default_scope(scope)), max_tokens=max_tokens)
+    def context(max_tokens: int = 900, scope: str | None = None) -> str:
+        """Core memory for session start: pinned rules, open todos, top facts."""
+        hits = store.context(default_scope(scope), max_todos=5)
+        return format.context(hits, max_tokens=max_tokens, todos_left=store.todos_left)
 
     @mcp.tool(structured_output=False, annotations=WRITE)
     @safe
@@ -357,12 +358,13 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
                 "SELECT default_scope FROM client WHERE name = ?", (name,)).fetchone()
             scope = row["default_scope"] if row else None
         try:
-            budget = min(int(request.query_params.get("max_tokens", 500)), 2000)
+            budget = min(int(request.query_params.get("max_tokens", 900)), 2000)
         except ValueError:
-            budget = 500
+            budget = 900
         t0 = time.perf_counter()
-        text = format.SESSION_INTRO + "\n" + format.context(store.context(scope or "global"),
-                                                           max_tokens=budget)
+        hits = store.context(scope or "global", max_todos=5)
+        text = format.SESSION_INTRO + "\n" + format.context(hits, max_tokens=budget,
+                                                           todos_left=store.todos_left)
         with contextlib.suppress(Exception):
             store.log_call(client=name, tool="session-hook", query=scope,
                            tokens=format.tokens(text), hits=len(HIT_LINE.findall(text)),

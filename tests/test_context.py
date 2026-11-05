@@ -82,3 +82,17 @@ def test_context_http_endpoint(tmp_path):
         assert res.status_code == 200
         assert "server is shano.eu" in res.text
         assert res.text.startswith("Long-term memory")
+
+
+def test_pinned_rules_in_full_and_todos_capped():
+    store = Store(connect(":memory:"))
+    rule = ("Na firemných serveroch iba read-only: čítanie bez pýtania, čokoľvek čo zapisuje, "
+            "maže alebo reštartuje len s explicitným súhlasom; " + "x" * 150 + " KONIEC")
+    store.remember(rule, type="feedback", entity="Eurosat", pinned=True)
+    for i in range(12):
+        store.remember(f"old todo number {i}", type="todo", entity=f"T{i}")
+    hits = store.context(max_todos=5)
+    assert sum(h.memory["type"] == "todo" for h in hits) == 5 and store.todos_left == 7
+    text = format.context(hits, max_tokens=900, todos_left=store.todos_left)
+    assert "KONIEC" in text.splitlines()[1]  # the pinned rule first and not cut short
+    assert "+7 older open todos" in text

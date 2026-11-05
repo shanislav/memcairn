@@ -105,11 +105,15 @@ def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
     return text
 
 
-def context(hits: list[Hit], *, max_tokens: int) -> str:
+def context(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
+    """Pinned rules in full (they must apply every session), then todos and top facts."""
     if not hits:
         return "memory is empty for this scope"
-    lines = [hit_line(h, limit=220) for h in hits]
-    return budgeted(lines, max_tokens, "(use recall for specific topics)")
+    lines = [hit_line(h, limit=420 if h.memory["pinned"] else 220) for h in hits]
+    text = budgeted(lines, max_tokens, "(use recall for specific topics)")
+    if todos_left:
+        text += f"\n+{todos_left} older open todos (recall with type=todo)"
+    return text
 
 
 def memory_full(row: sqlite3.Row) -> str:

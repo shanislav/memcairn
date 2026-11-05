@@ -221,6 +221,7 @@ class Store:
         self.embedder = embedder
         self.defer_vectors = False
         self._active_days: dict[int, list[str]] | None = None
+        self.todos_left = 0  # set by context(max_todos=...)
         self.vindex = None
         self._dirty: set[int] = set()
         if embedder is not None:
@@ -891,13 +892,15 @@ class Store:
         return Hit(memory=row, entity=row["entity_name"], score=round(score, 3), parts=parts)
 
     def context(self, scope: str | None = None, limit: int = 40,
-                per_entity: int = 2) -> list[Hit]:
+                per_entity: int = 2, max_todos: int | None = None) -> list[Hit]:
         """What an agent should see at session start, best first.
 
         Pinned facts first, then open todos, then the rest ranked by type, importance,
         use and *activity-based* age: a fact ages only when its entity receives newer
         writes, so a project left alone for a year doesn't fade (idea from engram-mcp).
         At most `per_entity` unpinned facts per entity, so one busy topic can't fill it.
+        With `max_todos`, only the most recently touched open todos are listed; how many
+        were left out is in `self.todos_left`.
         """
         chain = self.scope_chain(scope)
         rows = self.conn.execute(
@@ -929,7 +932,13 @@ class Store:
 
         hits.sort(key=rank)
         picked, seen = [], {}
+        todos = sorted((h for h in hits if h.memory["type"] == "todo" and not h.memory["pinned"]),
+                       key=lambda h: h.memory["updated_at"] or "", reverse=True)
+        skip = {id(h) for h in todos[max_todos:]} if max_todos is not None else set()
+        self.todos_left = len(skip)
         for h in hits:
+            if id(h) in skip:
+                continue
             ent = h.memory["entity_id"]
             if not h.memory["pinned"] and ent is not None:
                 if seen.get(ent, 0) >= per_entity:
