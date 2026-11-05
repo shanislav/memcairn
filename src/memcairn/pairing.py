@@ -126,8 +126,10 @@ def session_info(store: Store, token: str):
     row = store.conn.execute(
         "SELECT resource FROM oauth_token WHERE token_hash = ? AND client_id = 'web-ui'",
         (_hash(token),)).fetchone()
-    if not row or not (row["resource"] or "").startswith("web:"):
+    if not row:
         return None
+    if not (row["resource"] or "").startswith("web:"):  # sessions from before passwords
+        return "link", 0
     _, via, started = row["resource"].split(":")
     return via, int(started)
 
