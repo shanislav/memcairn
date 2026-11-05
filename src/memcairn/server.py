@@ -277,7 +277,12 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             return False, None
         tok = await (provider.load_access_token(token) if provider
                      else StoreTokenVerifier(store).verify_token(token))
-        return (tok is not None), ((tok.subject or tok.client_id) if tok else None)
+        if tok:
+            return True, tok.subject or tok.client_id
+        from .pairing import session_client  # a web UI session from a login link
+
+        name = session_client(store, token)
+        return (name is not None), name
 
     if provider:
         @mcp.custom_route("/oauth/approve", methods=["GET", "POST"])
@@ -303,12 +308,12 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             try:
                 return RedirectResponse(provider.approve(req, form.get("token", "")), 302)
             except ValueError:
-                return HTMLResponse(approve_page(name, host, req, "Unknown or revoked token."),
+                return HTMLResponse(approve_page(name, host, req, "Unknown, used or expired code."),
                                     401)
 
     from . import webapi
 
-    webapi.register(mcp, store, authorize)
+    webapi.register(mcp, store, authorize, auth_url)
 
     @mcp.custom_route("/docs", methods=["GET"])
     async def docs_list(request):

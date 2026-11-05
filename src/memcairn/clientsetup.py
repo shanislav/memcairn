@@ -308,6 +308,18 @@ def run_unsetup(home: Path, confirm: Callable[[str], bool], echo: Callable[[str]
             doc = _load(path)
             if a["id"] == "manual-mcp":
                 doc.setdefault("mcpServers", {})["memory"] = undo["spec"]
+            elif a["id"] == "connect-mcp":  # memcairn pair / connect --local
+                if undo.get("previous"):
+                    doc.setdefault("mcpServers", {})["memory"] = undo["previous"]
+                else:
+                    (doc.get("mcpServers") or {}).pop("memory", None)
+            elif a["id"] == "context-hook":
+                group = undo["groups"]["SessionStart"]
+                groups = [g for g in _session_groups(doc) if g != group]
+                if groups:
+                    doc["hooks"]["SessionStart"] = groups
+                else:
+                    doc.get("hooks", {}).pop("SessionStart", None)
             elif a["id"] == "manual-hook":
                 doc.setdefault("hooks", {}).setdefault("SessionStart", []).extend(undo["groups"])
             elif a["id"] in ("auto-memory", "enable-auto-memory"):

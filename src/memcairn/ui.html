@@ -86,7 +86,8 @@ th { color: var(--muted); font-weight: 500; }
 <body>
 <div id="gate" hidden>
   <h1 style="margin-top:0">Memcairn</h1>
-  <p>Enter a client token (<code>memcairn token add &lt;name&gt;</code>). It stays in this
+  <p>Open the login link that <code>memcairn login-link</code> prints on the server
+  (or <code>memcairn ui</code> on your computer). Or enter a client token; it stays in this
   browser tab only, unless you tick the box.</p>
   <input id="tok" type="password" placeholder="mcn_…" autocomplete="off">
   <label><input id="keep" type="checkbox"> remember on this device</label>
@@ -193,6 +194,38 @@ async function revokeClient(name, me) {
   loadOverview();
 }
 
+let pairTimer = null;
+function addMachine() {
+  $("#detail").innerHTML = `<div class="row" style="justify-content:space-between;margin:0"><h2>Add machine</h2><button class="ghost" id="x">Close</button></div>
+    <p class="meta">A one-time code (10 minutes) that the new machine trades for its own token. Nobody has to copy the token.</p>
+    <div class="grid"><label>name of the machine or app<input id="mname" placeholder="laptop, claude-ai, work-pc"></label></div>
+    <div class="row"><button class="act" id="mgo">Create code</button></div><div class="msg" id="dmsg"></div><div id="mout"></div>`;
+  $("#detail").classList.add("open"); $("#x").onclick = () => { clearInterval(pairTimer); close(); }; $("#mname").focus();
+  $("#mname").onkeydown = e => { if (e.key === "Enter") $("#mgo").click(); };
+  $("#mgo").onclick = async () => {
+    $("#dmsg").textContent = "";
+    try {
+      const r = await api("/api/pair", { method: "POST", body: JSON.stringify({ name: $("#mname").value.trim() }) });
+      const until = Date.now() + r.expires_in * 1000;
+      $("#mout").innerHTML = `<p style="font-size:28px;letter-spacing:3px;margin:12px 0"><b>${esc(r.code)}</b> <span class="meta" id="mleft"></span></p>
+        <h3>Claude Code (terminal or desktop app)</h3>
+        <p class="meta">Run on the new machine, or tell Claude there: "connect me to Memcairn with this command".</p>
+        <pre>${esc(r.command)}</pre>
+        <p class="meta">Needs Memcairn installed there: <code>uv tool install git+https://github.com/shanislav/memcairn</code></p>
+        <h3>claude.ai, Claude mobile and desktop chat</h3>
+        <p class="meta">Settings → Connectors → Add custom connector, URL:</p><pre>${esc(r.url)}/mcp</pre>
+        <p class="meta">On the approval page that opens, enter the code above. Do this from a network your server lets in.</p>`;
+      clearInterval(pairTimer);
+      pairTimer = setInterval(() => {
+        const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+        if (!$("#mleft")) return clearInterval(pairTimer);
+        $("#mleft").textContent = left ? `valid ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "expired";
+        if (!left) clearInterval(pairTimer);
+      }, 1000);
+    } catch (err) { $("#dmsg").textContent = err.message; }
+  };
+}
+
 function ago(ts) {
   if (!ts) return "never";
   const s = (Date.now() - Date.parse(ts.endsWith("Z") ? ts : ts + "Z")) / 1000;
@@ -231,7 +264,7 @@ async function loadOverview() {
       <div class="mini"><span class="t">recall: calls · avg tokens · empty</span><b>${recall.calls || 0} · ${recall.avg_tokens || 0} · ${recall.empty || 0}</b></div>
       <div class="mini"><span class="t">sessions started (overview injected)</span><b>${hook.calls || 0}</b></div>
       <div class="mini"><span class="t">facts written</span><b>${(u.remember || {}).calls || 0}</b></div></div>
-    <div class="panel"><h3>Machines and clients</h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span><button class="linkish" data-revoke="${esc(c.name)}" title="revoke this token and its OAuth sessions">revoke</button></div>`).join("")}</div>
+    <div class="panel"><h3>Machines and clients <button class="linkish" data-addmachine="1">+ add machine</button></h3>${o.clients.map(c => `<div class="mini"><span class="t">${esc(c.name)}</span><span class="meta">${ago(c.last_seen_at)} · ${c.writes_30d} writes/30d</span><button class="linkish" data-revoke="${esc(c.name)}" title="revoke this token and its OAuth sessions">revoke</button></div>`).join("")}</div>
     <div class="panel"><h3>Types</h3>${Object.entries(o.types).map(([t, n]) => `<div class="bar-row"><span class="name">${esc(t)}</span><div class="hbar" style="width:${100 * n / maxType}%"></div><span>${n}</span></div>`).join("")}</div>
     <div class="panel"><h3>Biggest topics</h3>${o.top_entities.map(e => `<div class="bar-row"><span class="name" title="${esc(e.name)}"><button class="linkish" data-ent="${esc(e.name)}" style="padding:0">${esc(e.name)}</button></span><div class="hbar" style="width:${100 * e.facts / maxEnt}%"></div><span>${e.facts} <button class="linkish" data-rename="${esc(e.name)}" title="rename or merge">✎</button></span></div>`).join("")}</div>
     <div class="panel"><h3>Open todos <button class="linkish" data-go="todos">all ${o.open_todos}</button></h3>${o.todos.map(t => `<div class="mini"><span class="t" data-id="${t.id}" title="${esc(t.content)}">${esc(t.content)}</span><button class="linkish" data-done="${t.id}">done</button><button class="linkish" data-drop="${t.id}">drop</button></div>`).join("") || '<div class="meta">none</div>'}</div>
@@ -243,7 +276,7 @@ async function loadOverview() {
 }
 
 $("#overview").onclick = async e => {
-  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-done],[data-drop],[data-id]"); if (!t) return;
+  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-addmachine],[data-done],[data-drop],[data-id]"); if (!t) return;
   const d = t.dataset;
   try {
     if (d.go === "memory") { showTab("memory"); search(); }
@@ -252,6 +285,7 @@ $("#overview").onclick = async e => {
     else if (d.ent) filterEntity(d.ent);
     else if (d.rename) await renameEntity(d.rename);
     else if (d.revoke) await revokeClient(d.revoke, me);
+    else if (d.addmachine) addMachine();
     else if (d.done || d.drop) { await setStatus(+(d.done || d.drop), d.done ? "done" : "dropped"); loadOverview(); }
     else if (d.id) openMemory(+d.id);
   } catch (err) { alert(err.message); }
@@ -424,7 +458,18 @@ async function loadStats() {
     ${s.usage.map(u => `<tr><td>${esc(u.tool)}</td><td>${u.calls}</td><td>${u.avg_tokens}</td><td>${u.max_tokens}</td><td>${u.empty}</td><td>${u.avg_ms}</td></tr>`).join("")}</table>`;
 }
 
-token ? start() : showGate();
+async function boot() {
+  const m = location.hash.match(/login=([A-Za-z0-9-]+)/);
+  if (m) {  // a one-time login link: trade it for a browser session
+    history.replaceState(null, "", location.pathname);
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: m[1] }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { token = j.token; store.set(token, true); return start(); }
+    return showGate("This login link was used already or has expired. Make a new one with: memcairn login-link");
+  }
+  token ? start() : showGate();
+}
+boot();
 </script>
 </body>
 </html>

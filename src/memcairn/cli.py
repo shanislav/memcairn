@@ -188,11 +188,11 @@ def token_list(db: Path = DbOpt):
 @token_app.command("revoke")
 def token_revoke(name: str, db: Path = DbOpt):
     """Revoke a client's token."""
-    store = open_store(db, vectors=False)
-    with store._tx():
-        n = store.conn.execute("UPDATE client SET revoked_at = ? WHERE name = ?",
-                               (now(), name)).rowcount
-    typer.echo("revoked" if n else "no such client")
+    from .pairing import revoke_client
+
+    ok = revoke_client(open_store(db, vectors=False), name)
+    typer.echo("revoked, with its OAuth and browser sessions" if ok
+               else "no such active client")
 
 
 @doc_app.command("list")
@@ -398,6 +398,92 @@ def setup(
 
     cs.run_setup(Path.home(), confirm, typer.echo, cwd=Path.cwd(),
                  disable_auto_memory=disable_auto_memory)
+
+
+@app.command()
+def pair(url: str = typer.Argument(..., help="Server address, e.g. https://memory.example.com"),
+         code: str = typer.Argument(..., help="Code from Add machine in the web UI."),
+         no_plugin: bool = typer.Option(False, help="Write a manual MCP entry even when the "
+                                        "claude CLI could install the plugin.")):
+    """Connect this machine to a Memcairn server with a pairing code (no token to copy)."""
+    from .connect import pair as do_pair
+
+    try:
+        do_pair(Path.home(), url, code, typer.echo, use_plugin=not no_plugin)
+    except RuntimeError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@app.command("connect")
+def connect_cmd(local: bool = typer.Option(..., "--local", help="Memory on this computer only.")):
+    """Connect Claude Code to a memory on this computer: no server, no token."""
+    from .connect import connect_local
+
+    connect_local(Path.home(), typer.echo)
+
+
+@app.command("login-link")
+def login_link(db: Path = DbOpt,
+               url: str = typer.Option(None, envvar="MEMCAIRN_PUBLIC_URL",
+                                       help="Public server URL.")):
+    """Print a web UI link that logs in once (valid 15 minutes). Run it on the server."""
+    from . import pairing
+
+    code = pairing.create(open_store(db, vectors=False), "login", by="cli")
+    base = (url or "http://127.0.0.1:8765").rstrip("/").removesuffix("/mcp")
+    typer.echo(f"{base}/ui#login={code}\n(single use, valid {pairing.LOGIN_TTL // 60} "
+               "minutes; the browser then stays logged in for 7 days)")
+
+
+@app.command()
+def ui(db: Path = DbOpt, port: int = typer.Option(0, help="Port; 0 picks a free one."),
+       no_browser: bool = typer.Option(False, help="Only print the link.")):
+    """Open the web UI for the memory on this computer (logs in by itself)."""
+    import socket
+    import webbrowser
+
+    from . import pairing
+
+    if not port:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+    store = open_store(db)
+    link = f"http://127.0.0.1:{port}/ui#login={pairing.create(store, 'login', by='ui')}"
+    typer.echo(f"Memcairn web UI: {link}\n(Ctrl+C to stop)")
+    if not no_browser:
+        threading.Timer(1.0, webbrowser.open, args=(link,)).start()
+    import contextlib
+
+    with contextlib.suppress(KeyboardInterrupt):  # token auth stays on: web pages can reach localhost
+        _serve(store, "http", "127.0.0.1", port, f"http://127.0.0.1:{port}", None, False,
+               False, None)
+
+
+@app.command()
+def context(db: Path = DbOpt):
+    """Print the memory overview (for a session-start hook); silent when unreachable."""
+    from .client import auth
+
+    url, token = auth()
+    try:
+        if url:
+            import urllib.request
+
+            req = urllib.request.Request(f"{url}/context",
+                                         headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                typer.echo(r.read().decode())
+        elif db.is_file():
+            from . import format
+
+            store = open_store(db, vectors=False)
+            hits = store.context("global", max_todos=5)
+            typer.echo(format.SESSION_INTRO + "\n" + format.context(
+                hits, max_tokens=900, todos_left=store.todos_left))
+    except Exception:  # never block a session start
+        pass
 
 
 @app.command()

@@ -208,6 +208,16 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX oauth_token_subject ON oauth_token (subject);
     """,
+    # 8 — one-time codes: web UI login links and machine pairing (hashes only)
+    """
+    CREATE TABLE onetime (
+        code_hash  TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        name       TEXT,
+        created_by TEXT,
+        expires_at INTEGER NOT NULL
+    );
+    """,
 ]
 
 

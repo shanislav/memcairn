@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import docs
-from .db import now
+from . import docs, pairing
 from .store import Conflict, NotFound, Store
 
 UI = Path(__file__).with_name("ui.html")
@@ -26,7 +25,7 @@ def _mem(row, *, full: bool = True) -> dict:
     return d
 
 
-def register(mcp, store: Store, authorize) -> None:
+def register(mcp, store: Store, authorize, public_url: str | None = None) -> None:
     from starlette.responses import HTMLResponse, JSONResponse
 
     def err(text: str, code: int = 400):
@@ -149,13 +148,19 @@ def register(mcp, store: Store, authorize) -> None:
         target = request.path_params["name"]
         if body.get("confirm") != target:
             return err("revoking needs confirm: \"<client name>\"")
-        with store._tx():
-            n = store.conn.execute(
-                "UPDATE client SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL",
-                (now(), target)).rowcount
-        if not n:
+        if not pairing.revoke_client(store, target):
             return err(f"no active client {target!r}", 404)
         return JSONResponse({"revoked": target, "self": target == name})
+
+    async def pair_code(request, name):
+        """"Add machine": a pairing code plus the command that uses it."""
+        body = await request.json() if await request.body() else {}
+        machine = (body.get("name") or "").strip()
+        code = pairing.create(store, "pair", machine, by=name)
+        url = (public_url or str(request.base_url)).rstrip("/")
+        return JSONResponse({"code": code, "name": machine, "url": url,
+                             "expires_in": pairing.PAIR_TTL,
+                             "command": f"memcairn pair {url} {code}"})
 
     async def documents(request, name):
         return JSONResponse([dict(r) for r in docs.list_docs(store)])
@@ -177,3 +182,26 @@ def register(mcp, store: Store, authorize) -> None:
               ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"])]
     for path, fn, methods in routes:
         mcp.custom_route(path, methods=methods)(guarded(fn))
+    mcp.custom_route("/api/pair", methods=["POST"])(guarded(pair_code))
+
+    # no token yet: these trade a one-time code for one
+    async def body_code(request) -> str:
+        try:
+            return str((await request.json()).get("code", ""))
+        except ValueError:
+            return ""
+
+    @mcp.custom_route("/api/login", methods=["POST"])
+    async def login(request):
+        token = pairing.web_session(store, await body_code(request))
+        if not token:
+            return err("unknown, used or expired login link", 401)
+        return JSONResponse({"token": token, "client": pairing.WEB_CLIENT})
+
+    @mcp.custom_route("/pair", methods=["POST"])
+    async def pair(request):
+        got = pairing.pair(store, await body_code(request))
+        if not got:
+            return err("unknown, used or expired pairing code", 401)
+        return JSONResponse({"name": got[0], "token": got[1],
+                             "url": (public_url or str(request.base_url)).rstrip("/")})

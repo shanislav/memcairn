@@ -103,6 +103,11 @@ class MemcairnOAuth:
         if not row:
             raise AuthorizeError("invalid_request", "approval expired, start again")
         name = self.client_for_static(memcairn_token.strip())
+        if not name:  # or a pairing code from "Add machine" in the web UI
+            from .pairing import pair
+
+            paired = pair(self.store, memcairn_token)
+            name = paired[0] if paired else None
         if not name:
             raise ValueError("unknown or revoked token")
         code = secrets.token_urlsafe(32)
@@ -224,9 +229,9 @@ button{{padding:.6rem 1rem;font:inherit;margin:.8rem .5rem 0 0}}.err{{color:#b00
 <h1>Connect to Memcairn</h1>
 <p><b>{e(client_name)}</b> wants to read and write this memory server.
 After approval it is sent back to <b>{e(redirect_host)}</b>.</p>
-<p>Paste a Memcairn client token to approve (created on the server with
-<code>memcairn token add &lt;name&gt;</code>). The connection then acts as that client.</p>
+<p>To approve, enter a pairing code: in the Memcairn web UI open Overview, choose
+<b>Add machine</b> and give it a name (e.g. claude-ai). A client token works too.</p>
 {err}<form method="post"><input type="hidden" name="req" value="{e(req)}">
-<input name="token" type="password" autocomplete="off" placeholder="mcn_…" autofocus>
+<input name="token" autocomplete="off" placeholder="K7QM-42XD" autofocus>
 <button name="action" value="approve">Approve</button>
 <button name="action" value="deny">Deny</button></form></body></html>"""
