@@ -21,7 +21,7 @@ clients: one SQLite file, one process, light on tokens (tool list ~900 tokens, a
 **Memory**
 - Recall: full-text search with stemming, sk/cs/en stop words, synonym groups, time words
   in the query ("last week", "v októbri"), weak hits cut off; `mode=deep` adds local
-  semantic search (no external API).
+  semantic search (no LLM, no external API; ~0.6 GB of memory, optional).
 - Writes: short atomic facts, every version kept, supersede chains, duplicate candidates,
   todos with done/dropped, credentials refused.
 - Session start: a ranked overview (pinned facts, open todos, most useful facts).
