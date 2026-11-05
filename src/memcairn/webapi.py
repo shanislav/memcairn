@@ -70,11 +70,12 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         q, limit = p.get("q", "").strip(), max(1, min(int(p.get("limit", 50)), 200))
         kind, entity, status = p.get("type") or None, p.get("entity") or None, p.get("status")
         pinned = p.get("pinned") == "1"
-        if q and not pinned:
+        if q:
             res = store.recall(q, limit=limit, deep=p.get("deep") == "1", type=kind,
                                entity=entity)
             items = [_mem(h.memory, full=False) | {"entity_name": h.entity, "score": h.score,
-                                                   "status": h.status} for h in res.hits]
+                                                   "status": h.status} for h in res.hits
+                     if h.memory["pinned"] or not pinned]
             parts = [{"doc": c.doc, "anchor": c.anchor, "path": c.path, "content": c.content}
                      for c in res.chunks[:5]]
             return JSONResponse({"items": items, "parts": parts, "coverage": res.coverage})

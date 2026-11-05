@@ -147,5 +147,7 @@ def test_pinned_facts_in_overview_and_as_a_filter(http):
     assert [p["id"] for p in over["pinned"]] == [pin["id"]]
     listed = http.get("/api/search", params={"pinned": "1"}, headers=H).json()["items"]
     assert [m["id"] for m in listed] == [pin["id"]]
-    listed = http.get("/api/search", params={"pinned": "1", "q": "anything"}, headers=H).json()
-    assert [m["id"] for m in listed["items"]] == [pin["id"]]  # the filter wins over a query
+    listed = http.get("/api/search", params={"pinned": "1", "q": "inventory"}, headers=H).json()
+    assert [m["id"] for m in listed["items"]] == [pin["id"]]  # searched among pinned only
+    listed = http.get("/api/search", params={"pinned": "1", "q": "lumina"}, headers=H).json()
+    assert listed["items"] == []

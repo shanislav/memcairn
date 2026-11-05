@@ -110,7 +110,7 @@ class StaticModel:
 
         dim = self.table.shape[1]
         for enc in self.tokenizer.encode_batch(list(texts), add_special_tokens=False):
-            ids = [i for i in enc.ids if i != self.unk][: self.MAX_TOKENS]
+            ids = [i for i in enc.ids[: self.MAX_TOKENS] if i != self.unk]  # model2vec order
             yield (self.table[ids].astype(np.float32).mean(axis=0) if ids
                    else np.zeros(dim, dtype=np.float32))
 
