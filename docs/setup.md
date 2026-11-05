@@ -329,8 +329,8 @@ page already logged in.
   are and how much is waiting for cleanup; changes over the last 14 days; how agents use
   memory (calls, tokens per recall, empty results, sessions started); which machines
   connected when and how much they wrote, with **+ add machine** (pairing code) and
-  **revoke**; types; the biggest topics; open todos with done/drop buttons; what changed
-  last.
+  **revoke**; types; the biggest topics; **pinned facts** (sent in full in every
+  session) with unpin; open todos with done/drop buttons; what changed last.
 - **Memory**: search like the agents do (including deep mode and time words), filter by
   type, entity and todo status. A fact opens with its version history and the facts it
   replaced: edit it, save the change as a new version when it changed in reality, mark a

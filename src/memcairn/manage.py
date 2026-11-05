@@ -99,10 +99,15 @@ def overview(store: Store) -> dict:
         f"""SELECT m.id, m.type, m.content, e.name AS entity_name, m.updated_at, m.client
             FROM memory m LEFT JOIN entity e ON e.id = m.entity_id WHERE {live}
             ORDER BY m.updated_at DESC LIMIT 6""")]
+    pinned = [dict(r) for r in q(
+        f"""SELECT m.id, m.type, m.content, e.name AS entity_name FROM memory m
+            LEFT JOIN entity e ON e.id = m.entity_id WHERE {live} AND m.pinned = 1
+            ORDER BY m.id""")]
     usage = {r["tool"]: dict(r) for r in store.usage(7)}
     docs = q("SELECT count(*), coalesce(sum(length(content)), 0) FROM document").fetchone()
     open_todos = q(f"SELECT count(*) FROM memory m WHERE {live} AND m.type = 'todo' "
                    "AND m.status = 'open'").fetchone()[0]
     return {"stats": store.stats(), "types": types, "top_entities": top, "activity": days,
             "clients": clients, "open_todos": open_todos, "todos": todos, "recent": recent,
+            "pinned": pinned,
             "usage": usage, "documents": {"count": docs[0], "chars": docs[1]}}

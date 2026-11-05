@@ -139,3 +139,13 @@ def test_revoke_a_client_needs_its_name_and_cuts_it_off(http):
     assert http.post("/api/client/web-ui/revoke", json={"confirm": "web-ui"},
                      headers=B).json()["self"] is True
     assert http.get("/api/stats", headers=B).status_code == 401
+
+
+def test_pinned_facts_in_overview_and_as_a_filter(http):
+    pin, _ = http.store.remember("inventory lives in doc:servers", pinned=True)
+    over = http.get("/api/overview", headers=H).json()
+    assert [p["id"] for p in over["pinned"]] == [pin["id"]]
+    listed = http.get("/api/search", params={"pinned": "1"}, headers=H).json()["items"]
+    assert [m["id"] for m in listed] == [pin["id"]]
+    listed = http.get("/api/search", params={"pinned": "1", "q": "anything"}, headers=H).json()
+    assert [m["id"] for m in listed["items"]] == [pin["id"]]  # the filter wins over a query

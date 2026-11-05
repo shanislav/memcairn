@@ -69,7 +69,8 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         p = request.query_params
         q, limit = p.get("q", "").strip(), max(1, min(int(p.get("limit", 50)), 200))
         kind, entity, status = p.get("type") or None, p.get("entity") or None, p.get("status")
-        if q:
+        pinned = p.get("pinned") == "1"
+        if q and not pinned:
             res = store.recall(q, limit=limit, deep=p.get("deep") == "1", type=kind,
                                entity=entity)
             items = [_mem(h.memory, full=False) | {"entity_name": h.entity, "score": h.score,
@@ -87,6 +88,8 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         if status:
             where.append("m.status = ?")
             args.append(status)
+        if pinned:
+            where.append("m.pinned = 1")
         order = ("m.updated_at DESC" if p.get("sort") == "changed"
                  else "m.recorded_at DESC, m.id DESC")  # newest noted first
         rows = store.conn.execute(
