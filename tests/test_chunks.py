@@ -8,7 +8,7 @@ name: Servers
 ---
 ## Home server
 
-Main box, AlmaLinux 9, 192.168.9.1.
+Main box, AlmaLinux 9, 192.168.1.10.
 
 ## Company servers
 
@@ -16,7 +16,7 @@ Main box, AlmaLinux 9, 192.168.9.1.
 
 | IP | Name | Role |
 |----|------|------|
-""" + "\n".join(f"| 192.168.20.{i} | db{i} | MySQL node {i} |" for i in range(1, 11)) + """
+""" + "\n".join(f"| 10.20.0.{i} | db{i} | MySQL node {i} |" for i in range(1, 11)) + """
 
 ### Notes
 
@@ -29,7 +29,7 @@ def test_headings_tables_and_anchors():
     by = {c.anchor: c for c in cs}
     assert by["home-server"].path == "Home server"
     assert by["notes"].path == "Company servers › Notes"  # H3 under the right H2
-    row = by["192-168-20-3"]  # first cell names the row
+    row = by["10-20-0-3"]  # first cell names the row
     assert row.kind == "row" and row.content.startswith("| IP | Name | Role |")
     assert "db3" in row.content and "db4" not in row.content
     assert all(len(c.content) <= MAX_CHARS for c in cs)
@@ -53,7 +53,7 @@ def test_recall_returns_the_matching_part_not_the_document():
     store = store_with_inventory()
     res = store.recall("db7 mysql")
     text = format.recall(res, max_tokens=600, limit=5, explain=False, deep=False)
-    assert "doc:servers#192-168-20-7" in text and "Name: db7" in text
+    assert "doc:servers#10-20-0-7" in text and "Name: db7" in text
     assert "db8" not in text  # only that row
     assert format.tokens(text) < 80
 
@@ -79,7 +79,7 @@ def test_get_part_outline_and_reindex_keeps_unchanged_parts():
         res = anyio.run(lambda: srv.call_tool("get", {"ids": [ref]}))
         return "".join(c.text for c in res.content)
 
-    part = get("doc:servers#192-168-20-7")
+    part = get("doc:servers#10-20-0-7")
     assert "| IP | Name | Role |" in part and "db7" in part and "Home server" not in part
     toc = get("doc:servers?toc")
     assert "Company servers" in toc and "#notes" in toc

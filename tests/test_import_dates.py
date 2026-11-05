@@ -7,7 +7,7 @@ from memcairn.store import Store
 
 def test_only_a_leading_date_is_a_record_date():
     assert record_date("2026-10-01: switched prod to the fork") == "2026-10-01"
-    assert record_date("FIX Chimera1C7 (.211) 2026-07-01: stop salt-minion") == "2026-07-01"
+    assert record_date("FIX Replica1C7 (.211) 2026-07-01: stop salt-minion") == "2026-07-01"
     assert record_date("APC Smart-UPS on USB, battery made 2005-10-06, replace soon") is None
     assert record_date("planned for 2099-01-01") is None
 

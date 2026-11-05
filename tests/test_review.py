@@ -52,8 +52,8 @@ def test_fix_exact_duplicates_is_reversible():
 
 def test_template_rows_for_different_hosts_are_not_pairs():
     store = Store(connect(":memory:"), embedder=OneAxis())
-    store.remember("Chimera1C7: 192.168.20.211 | MySQL replikátor", entity="Chimera")
-    store.remember("Chimera2C7: 192.168.20.212 | MySQL replikátor", entity="Chimera")
+    store.remember("Replica1C7: 10.20.0.211 | MySQL replikátor", entity="Replica")
+    store.remember("Replica2C7: 10.20.0.212 | MySQL replikátor", entity="Replica")
     assert rv.similar_pairs(store) == []
 
 

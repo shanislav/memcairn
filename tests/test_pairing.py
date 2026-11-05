@@ -20,7 +20,7 @@ def http(tmp_path):
     with store.lock:
         store.conn.execute("INSERT INTO client (name, token_hash, created_at) VALUES "
                            "('admin', ?, '2026-01-01T00:00:00Z')", (hash_token("mcn_admin"),))
-    store.remember("Lumina prod runs on shano.eu", entity="Lumina", type="project")
+    store.remember("Lumina prod runs on home.example", entity="Lumina", type="project")
     app = build(store, auth_url="https://mem.example").streamable_http_app(host="testserver")
     with TestClient(app) as client:
         client.store = store

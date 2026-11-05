@@ -74,8 +74,8 @@ def test_project_memory_dir_matches_claude_code_naming(tmp_path):
     assert folder.parent.parent == tmp_path / ".claude" / "projects"
     assert folder.name == "memory" and "-proj" in folder.parent.name
     import re
-    assert re.sub(r"[^A-Za-z0-9]", "-", str(PureWindowsPath("C:/Users/Shano/cloude"))) == \
-        "C--Users-Shano-cloude"
+    assert re.sub(r"[^A-Za-z0-9]", "-", str(PureWindowsPath("C:/Users/Alex/work"))) == \
+        "C--Users-Alex-work"
     assert re.sub(r"[^A-Za-z0-9]", "-", "/root/work") == "-root-work"
     assert cs.project_memory_dir(tmp_path, tmp_path, {"autoMemoryDirectory": "~/m"}).name == "m"
 

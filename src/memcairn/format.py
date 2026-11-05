@@ -59,7 +59,7 @@ def budgeted(lines: list[str], max_tokens: int, more_hint: str) -> str:
 
 
 def chunk_line(c: DocHit, *, limit: int = SNIPPET, explain: bool = False) -> str:
-    if c.kind == "row":  # "IP: 192.168.20.202 · Name: Charon2C7 · …" reads without a header
+    if c.kind == "row":  # "IP: 10.20.0.202 · Name: Node2C7 · …" reads without a header
         from .chunks import row_pairs
         text = row_pairs(c.content)
     else:

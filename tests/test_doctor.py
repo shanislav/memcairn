@@ -37,10 +37,10 @@ def test_settings_json_entry_is_flagged_as_ignored(tmp_path):
 def test_glued_hosts_line(tmp_path):
     hosts = tmp_path / "hosts"
     hosts.write_text("127.0.0.1 localhost\n"
-                     "0.0.0.0 rpc.acronis.com192.168.9.1  memory.example.com\n", encoding="utf-8")
+                     "0.0.0.0 rpc.acronis.com192.168.1.10  memory.example.com\n", encoding="utf-8")
     out = d.check_hosts("memory.example.com", hosts)
     assert levels(out) == [d.FAIL]
-    hosts.write_text("192.168.9.1  memory.example.com\n", encoding="utf-8")
+    hosts.write_text("192.168.1.10  memory.example.com\n", encoding="utf-8")
     assert levels(d.check_hosts("memory.example.com", hosts)) == [d.OK]
 
 

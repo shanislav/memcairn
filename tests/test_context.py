@@ -19,7 +19,7 @@ def test_pinned_then_todos_then_by_type(store):
     fact, _ = store.remember("plain fact", entity="A")
     fb, _ = store.remember("always run tests before commit", type="feedback", entity="B")
     todo, _ = store.remember("rotate the token", type="todo", entity="C")
-    pin, _ = store.remember("server is shano.eu", entity="D", pinned=True)
+    pin, _ = store.remember("server is home.example", entity="D", pinned=True)
     order = ids(store.context())
     assert order[:3] == [pin["id"], todo["id"], fb["id"]]
     assert order[-1] == fact["id"]
@@ -70,7 +70,7 @@ def test_context_http_endpoint(tmp_path):
     from starlette.testclient import TestClient
 
     store = Store(connect(tmp_path / "m.db"))
-    store.remember("server is shano.eu", pinned=True)
+    store.remember("server is home.example", pinned=True)
     with store.lock:
         store.conn.execute("INSERT INTO client (name, token_hash, created_at) VALUES "
                            "('pc', ?, '2026-01-01T00:00:00Z')", (hash_token("secret-token"),))
@@ -80,7 +80,7 @@ def test_context_http_endpoint(tmp_path):
         assert http.get("/context", headers={"Authorization": "Bearer nope"}).status_code == 401
         res = http.get("/context", headers={"Authorization": "Bearer secret-token"})
         assert res.status_code == 200
-        assert "server is shano.eu" in res.text
+        assert "server is home.example" in res.text
         assert res.text.startswith("Long-term memory")
 
 
@@ -88,7 +88,7 @@ def test_pinned_rules_in_full_and_todos_capped():
     store = Store(connect(":memory:"))
     rule = ("Na firemných serveroch iba read-only: čítanie bez pýtania, čokoľvek čo zapisuje, "
             "maže alebo reštartuje len s explicitným súhlasom; " + "x" * 150 + " KONIEC")
-    store.remember(rule, type="feedback", entity="Eurosat", pinned=True)
+    store.remember(rule, type="feedback", entity="Acme", pinned=True)
     for i in range(12):
         store.remember(f"old todo number {i}", type="todo", entity=f"T{i}")
     hits = store.context(max_todos=5)

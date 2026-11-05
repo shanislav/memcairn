@@ -337,7 +337,7 @@ Edits are versioned and recorded as the logged-in client (`web-ui` after a login
 Revoking `web-ui` logs out every browser. The page itself holds no data. It works on a
 phone too.
 
-`memcairn chronicle "FireClu3"` prints everything memory knows about a topic in date
+`memcairn chronicle "Edge3"` prints everything memory knows about a topic in date
 order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup
 replaced. `--out file.md` writes it to a file and `--current-only` leaves out the replaced
 versions. In `get(ids, history=true)`, a fact also lists the earlier facts it replaced.
@@ -397,7 +397,7 @@ table row becomes its own part with the table header attached. `recall` returns 
 matching part next to facts:
 
 ```
-doc:servers#192-168-20-11 · doc · Firewall · IP: 192.168.20.11 · Name: FireClu1 · …
+doc:servers#10-20-0-11 · doc · Firewall · IP: 10.20.0.11 · Name: Edge1 · …
 ```
 
 That costs ~70 tokens instead of reading a whole 14 KB inventory. Recall shows at most two

@@ -34,7 +34,7 @@ DATE = re.compile(r"\b(20\d\d-[01]\d-[0-3]\d)\b")
 
 ESTIMATED = "date:estimated"  # tag: the text gave no date, recorded_at is a guess
 # A record date opens the fact ("2026-10-01 switched…") or heads it, followed by a colon
-# or dash ("FIX Chimera1C7 (.211) 2026-07-01: …"), within the first 40 characters.
+# or dash ("FIX Replica1C7 (.211) 2026-07-01: …"), within the first 40 characters.
 RECORD = re.compile(r"^\W*(20\d\d-[01]\d-[0-3]\d)\b|^.{0,40}?\b(20\d\d-[01]\d-[0-3]\d)\s*[:—–-]")
 
 

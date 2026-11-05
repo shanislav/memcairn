@@ -197,7 +197,7 @@ IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 
 def different_hosts(a: str, b: str) -> bool:
     """Both texts name IP addresses and share none: likely two machines on one template
-    ("Chimera1: .211 | MySQL" vs "Chimera2: .212 | MySQL"), not one fact said twice."""
+    ("Replica1: .211 | MySQL" vs "Replica2: .212 | MySQL"), not one fact said twice."""
     ips_a, ips_b = set(IPV4.findall(a)), set(IPV4.findall(b))
     return bool(ips_a and ips_b and not ips_a & ips_b)
 
@@ -843,8 +843,8 @@ class Store:
             bm = -r["rank"] / worst if worst > 0 else 0.0
             score = round((0.6 * coverage + 0.4 * bm) * 0.75 + 0.15 * 0.4 + 0.1 - 0.02, 3)
             if r["kind"] == "row" and qterms:
-                # a query word that *starts* a cell names this row ("charon2" → the
-                # Charon2C7 row), not one that merely mentions it ("Snapshot Charon2")
+                # a query word that *starts* a cell names this row ("node2" → the
+                # Node2C7 row), not one that merely mentions it ("Snapshot Node2")
                 cells = [fold(c.strip()) for c in r["content"].splitlines()[-1].split("|")]
                 if any(c.startswith(q) for q in qterms for c in cells if c):
                     score = round(score + 0.15, 3)

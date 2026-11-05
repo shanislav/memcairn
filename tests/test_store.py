@@ -30,7 +30,7 @@ def test_recall_folds_diacritics_and_inflection(store):
 
 
 def test_low_confidence_hint(store):
-    store.remember("Plex runs on shano.eu")
+    store.remember("Plex runs on home.example")
     res = store.recall("plex kubernetes cluster autoscaling")
     text = format.recall(res, max_tokens=600, limit=5, explain=False, deep=False)
     assert "low confidence" in text
@@ -85,8 +85,8 @@ def test_idempotency(store):
 
 
 def test_near_duplicates(store):
-    store.remember("shano.eu firewall is foomuuri not firewalld")
-    _, dups = store.remember("firewall on shano.eu is foomuuri, not firewalld")
+    store.remember("home.example firewall is foomuuri not firewalld")
+    _, dups = store.remember("firewall on home.example is foomuuri, not firewalld")
     assert dups
 
 
@@ -113,7 +113,7 @@ def test_login_and_bmc_passwords_rejected(store, text):
 
 def test_inventory_without_passwords_passes(store):
     store.remember("| IP | Name | OS | HW | ILO |\n|---|---|---|---|---|\n"
-                   "| 10.0.0.5 | Charon2C7 | AlmaLinux 10.0 | DL360 Gen9 | .10 |")
+                   "| 10.0.0.5 | Node2C7 | AlmaLinux 10.0 | DL360 Gen9 | .10 |")
     store.remember("SSH user: root; HP default user je `Administrator`, ILO cez .20.x / https")
 
 
@@ -148,8 +148,8 @@ def test_import_server_memory(store, tmp_path):
     lines = [
         {"type": "entity", "name": "OBED", "entityType": "projekt",
          "observations": ["FastAPI backend", "React frontend"]},
-        {"type": "entity", "name": "shano.eu", "entityType": "server", "observations": []},
-        {"type": "relation", "from": "OBED", "to": "shano.eu", "relationType": "runs_on"},
+        {"type": "entity", "name": "home.example", "entityType": "server", "observations": []},
+        {"type": "relation", "from": "OBED", "to": "home.example", "relationType": "runs_on"},
     ]
     p = tmp_path / "memory.json"
     p.write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
@@ -185,7 +185,7 @@ def test_version_alone_is_not_status():
     from memcairn.format import STATUS_LIKE
     assert not STATUS_LIKE.search("cluster runs pacemaker 1.1.11 with crm, not pcs")
     assert STATUS_LIKE.search("installed claude 2.1.317 on the server")
-    assert not STATUS_LIKE.search("server 192.168.20.11 deployed")
+    assert not STATUS_LIKE.search("server 10.20.0.11 deployed")
 
 
 def test_ids_are_not_status():

@@ -58,7 +58,7 @@ def test_compat_tools():
     srv = build(Store(connect(":memory:")), compat=True, stdio_client="t")
     call(srv, "create_entities", entities=[
         {"name": "OBED", "entityType": "project", "observations": ["lunch ordering app"]}])
-    call(srv, "create_relations", relations=[{"from": "OBED", "to": "shano", "relationType": "on"}])
+    call(srv, "create_relations", relations=[{"from": "OBED", "to": "homeserver", "relationType": "on"}])
     assert "lunch ordering app" in call(srv, "open_nodes", names=["OBED"])
     assert "OBED (project, 1 facts)" in call(srv, "read_graph")
     assert "lunch" in call(srv, "search_nodes", query="lunch")

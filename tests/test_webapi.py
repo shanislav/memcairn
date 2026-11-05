@@ -15,9 +15,9 @@ def http(tmp_path):
     with store.lock:
         store.conn.execute("INSERT INTO client (name, token_hash, created_at) VALUES "
                            "('browser', ?, '2026-01-01T00:00:00Z')", (hash_token("mcn_web"),))
-    store.remember("Lumina prod runs on shano.eu", entity="Lumina", type="project")
+    store.remember("Lumina prod runs on home.example", entity="Lumina", type="project")
     store.remember("check plex port", entity="Plex", type="todo")
-    docs.put_doc(store, "inv", "# Inv\n\n## Home\n\nshano.eu is 192.168.9.1\n", base_version=0)
+    docs.put_doc(store, "inv", "# Inv\n\n## Home\n\nhome.example is 192.168.1.10\n", base_version=0)
     app = build(store, auth_url="http://testserver").streamable_http_app(host="testserver")
     with TestClient(app) as client:
         client.store = store
@@ -37,13 +37,13 @@ def test_search_edit_forget_through_the_api(http):
     r = http.get("/api/search", params={"q": "lumina prod"}, headers=H).json()
     mid = r["items"][0]["id"]
     assert r["items"][0]["entity_name"] == "Lumina"
-    assert http.get("/api/search", params={"q": "shano.eu"}, headers=H).json()["parts"]
+    assert http.get("/api/search", params={"q": "home.example"}, headers=H).json()["parts"]
     todos = http.get("/api/search", params={"status": "open"}, headers=H).json()["items"]
     assert [t["type"] for t in todos] == ["todo"]
 
     d = http.get(f"/api/memory/{mid}", headers=H).json()
     upd = http.post(f"/api/memory/{mid}", headers=H, json={
-        "content": "Lumina prod runs on shano.eu (fork master)",
+        "content": "Lumina prod runs on home.example (fork master)",
         "expected_version": d["memory"]["version"]}).json()["memory"]
     assert upd["version"] == 2
     stale = http.post(f"/api/memory/{mid}", headers=H, json={"content": "x", "expected_version": 1})
@@ -57,7 +57,7 @@ def test_search_edit_forget_through_the_api(http):
 
     new = http.post("/api/memory", headers=H, json={"content": "db password=hunter2secret"})
     assert new.status_code == 400  # secrets refused here too
-    ok = http.post("/api/memory", headers=H, json={"content": "Immich runs on shano.eu",
+    ok = http.post("/api/memory", headers=H, json={"content": "Immich runs on home.example",
                                                    "entity": "Immich"}).json()
     assert ok["memory"]["entity_id"]
     assert {e["name"] for e in http.get("/api/entities", headers=H).json()} >= {"Lumina", "Immich"}
