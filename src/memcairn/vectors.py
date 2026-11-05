@@ -1,8 +1,14 @@
-"""Optional semantic search: local embeddings (fastembed) + brute-force cosine in numpy.
+"""Optional semantic search: local embeddings + brute-force cosine in numpy.
 
-Brute force is deliberate: a personal or team memory holds thousands of facts, not
-millions, and a dot product over 10k x 384 floats takes about a millisecond. This
-also avoids depending on a SQLite extension being loadable.
+Brute force is deliberate: a personal memory holds thousands of facts, not millions, and
+a dot product over 10k x 256 floats takes about a millisecond. This also avoids depending
+on a SQLite extension being loadable.
+
+Static models (model2vec, like the default potion-multilingual-128M) are a table of one
+vector per token: a text's vector is the mean of its tokens' rows. Memcairn reads that
+table memory-mapped from the downloaded file instead of loading it through fastembed, so
+only the rows actually used take memory (about 0.6 GB in all instead of 1.2 GB, most of
+it the tokenizer) and the vectors are the same. Other models go through fastembed.
 """
 
 from __future__ import annotations
@@ -34,9 +40,11 @@ class Embedder:
 
     def _load(self):
         if self._impl is None:
-            from fastembed import TextEmbedding
+            self._impl = StaticModel.open(self.model, self.cache_dir)
+            if self._impl is None:
+                from fastembed import TextEmbedding
 
-            self._impl = TextEmbedding(self.model, cache_dir=self.cache_dir)
+                self._impl = TextEmbedding(self.model, cache_dir=self.cache_dir)
         return self._impl
 
     def docs(self, texts: list[str]):
@@ -52,6 +60,62 @@ class Embedder:
         with self._lock:
             vec = np.array(list(self._load().query_embed([text]))[0], dtype=np.float32)
         return _normalize(vec[None, :])[0]
+
+
+class StaticModel:
+    """A model2vec model read straight from its safetensors file (memory-mapped)."""
+
+    MAX_TOKENS = 512  # as model2vec's encode
+
+    def __init__(self, table, tokenizer, unk: int | None):
+        self.table, self.tokenizer, self.unk = table, tokenizer, unk
+
+    @classmethod
+    def open(cls, model: str, cache_dir: str | None) -> StaticModel | None:
+        """The model, or None when it isn't a model2vec model (fastembed handles those)."""
+        import json
+        import struct
+
+        import numpy as np
+
+        try:
+            from huggingface_hub import snapshot_download
+            from tokenizers import Tokenizer
+
+            files = ["config.json", "model.safetensors", "tokenizer.json"]
+            try:  # offline first: the model is usually there already
+                folder = snapshot_download(model, cache_dir=cache_dir, allow_patterns=files,
+                                           local_files_only=True)
+            except Exception:
+                folder = snapshot_download(model, cache_dir=cache_dir, allow_patterns=files)
+            folder = Path(folder)
+            config = json.loads((folder / "config.json").read_text(encoding="utf-8"))
+            if config.get("model_type") != "model2vec" or not config.get("normalize", True):
+                return None
+            path = folder / "model.safetensors"
+            with open(path, "rb") as f:
+                size = struct.unpack("<Q", f.read(8))[0]
+                header = json.loads(f.read(size))
+            meta = header["embeddings"]
+            dtype = {"F32": np.float32, "F16": np.float16}[meta["dtype"]]
+            table = np.memmap(path, dtype=dtype, mode="r", shape=tuple(meta["shape"]),
+                              offset=8 + size + meta["data_offsets"][0])
+            tokenizer = Tokenizer.from_file(str(folder / "tokenizer.json"))
+        except Exception:  # unusual layout, no network, missing package: use fastembed
+            return None
+        return cls(table, tokenizer, tokenizer.token_to_id("[UNK]"))
+
+    def embed(self, texts: list[str], batch_size: int = 64):
+        import numpy as np
+
+        dim = self.table.shape[1]
+        for enc in self.tokenizer.encode_batch(list(texts), add_special_tokens=False):
+            ids = [i for i in enc.ids if i != self.unk][: self.MAX_TOKENS]
+            yield (self.table[ids].astype(np.float32).mean(axis=0) if ids
+                   else np.zeros(dim, dtype=np.float32))
+
+    def query_embed(self, texts: list[str]):
+        return self.embed(texts)
 
 
 class VectorIndex:
