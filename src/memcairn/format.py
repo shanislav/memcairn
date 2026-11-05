@@ -48,9 +48,10 @@ def hit_line(hit: Hit, *, limit: int = SNIPPET, explain: bool = False) -> str:
 
 def budgeted(lines: list[str], max_tokens: int, more_hint: str) -> str:
     out, used = [HEADER], tokens(HEADER)
+    hint = tokens(f"+{len(lines)} more {more_hint}") + 1  # room for the "+N more" line
     for i, line in enumerate(lines):
         cost = tokens(line) + 1
-        if used + cost > max_tokens and i > 0:
+        if used + cost + (hint if i < len(lines) - 1 else 0) > max_tokens and i > 0:
             out.append(f"+{len(lines) - i} more {more_hint}")
             break
         out.append(line)
@@ -106,14 +107,19 @@ def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
 
 
 def context(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
-    """Pinned rules in full (they must apply every session), then todos and top facts."""
+    """Pinned rules in full (they must apply every session), then todos and top facts;
+    max_tokens covers all of it, the "+N older open todos" line included."""
     if not hits:
         return "memory is empty for this scope"
+    more = f"\n+{todos_left} older open todos (recall with type=todo)" if todos_left else ""
     lines = [hit_line(h, limit=420 if h.memory["pinned"] else 220) for h in hits]
-    text = budgeted(lines, max_tokens, "(use recall for specific topics)")
-    if todos_left:
-        text += f"\n+{todos_left} older open todos (recall with type=todo)"
-    return text
+    return budgeted(lines, max_tokens - tokens(more), "(use recall for specific topics)") + more
+
+
+def session_overview(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
+    """What a session-start hook injects: the intro line plus context(), within max_tokens."""
+    return SESSION_INTRO + "\n" + context(hits, max_tokens=max_tokens - tokens(SESSION_INTRO),
+                                          todos_left=todos_left)
 
 
 def memory_full(row: sqlite3.Row) -> str:

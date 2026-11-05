@@ -96,3 +96,18 @@ def test_pinned_rules_in_full_and_todos_capped():
     text = format.context(hits, max_tokens=900, todos_left=store.todos_left)
     assert "KONIEC" in text.splitlines()[1]  # the pinned rule first and not cut short
     assert "+7 older open todos" in text
+
+
+def test_session_overview_stays_within_its_budget(tmp_path):
+    from memcairn import format
+
+    store = Store(connect(tmp_path / "m.db"))
+    for i in range(60):
+        store.remember(f"fact {i} " + "about servers, backups and deploys " * 5, entity=f"E{i}")
+    for i in range(12):
+        store.remember(f"open chore {i}", type="todo")
+    hits = store.context("global", max_todos=5)
+    for budget in (300, 600, 900):
+        text = format.session_overview(hits, max_tokens=budget, todos_left=store.todos_left)
+        assert format.tokens(text) <= budget, budget
+        assert text.startswith(format.SESSION_INTRO) and "older open todos" in text

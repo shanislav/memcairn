@@ -1,5 +1,5 @@
 {
-  "description": "Inject a short memory overview (pinned facts, open todos, top facts; ~500 tokens) at session start. Never blocks: on any error it prints nothing.",
+  "description": "Inject a short memory overview (pinned facts, open todos, top facts; ~900 tokens at most) at session start. Never blocks: on any error it prints nothing.",
   "hooks": {
     "SessionStart": [
       {

@@ -545,8 +545,8 @@ def context(db: Path = DbOpt):
 
             store = open_store(db, vectors=False)
             hits = store.context("global", max_todos=5)
-            typer.echo(format.SESSION_INTRO + "\n" + format.context(
-                hits, max_tokens=900, todos_left=store.todos_left))
+            typer.echo(format.session_overview(hits, max_tokens=900,
+                                               todos_left=store.todos_left))
     except Exception:  # never block a session start
         pass
 

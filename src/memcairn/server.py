@@ -362,8 +362,7 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
             budget = 900
         t0 = time.perf_counter()
         hits = store.context(scope or "global", max_todos=5)
-        text = format.SESSION_INTRO + "\n" + format.context(hits, max_tokens=budget,
-                                                           todos_left=store.todos_left)
+        text = format.session_overview(hits, max_tokens=budget, todos_left=store.todos_left)
         with contextlib.suppress(Exception):
             store.log_call(client=name, tool="session-hook", query=scope,
                            tokens=format.tokens(text), hits=len(HIT_LINE.findall(text)),
