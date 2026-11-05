@@ -375,8 +375,13 @@ def purge(
 def setup(
     yes: bool = typer.Option(False, "--yes", help="Apply every offered change without asking."),
     dry_run: bool = typer.Option(False, help="Only show what would change."),
+    disable_auto_memory: bool = typer.Option(
+        False, help="Also turn off Claude Code auto memory (Memcairn as the only memory)."),
 ):
-    """Optional client changes the plugin doesn't make: each shown as a diff, backed up, y/n."""
+    """Optional client changes the plugin doesn't make: each shown as a diff, backed up, y/n.
+
+    Run it in the project whose auto memory you want to share (your main workspace).
+    """
     from . import clientsetup as cs
 
     def confirm(change, diff_text):
@@ -385,15 +390,18 @@ def setup(
             return False
         return yes or typer.confirm("apply?", default=True)
 
-    cs.run_setup(Path.home(), confirm, typer.echo)
+    cs.run_setup(Path.home(), confirm, typer.echo, cwd=Path.cwd(),
+                 disable_auto_memory=disable_auto_memory)
 
 
 @app.command()
-def unsetup(yes: bool = typer.Option(False, "--yes", help="Revert everything without asking.")):
+def unsetup(yes: bool = typer.Option(False, "--yes", help="Revert everything without asking."),
+            only: str = typer.Option(None, help="Revert just this change id, e.g. automemory.")):
     """Revert what `memcairn setup` changed (it keeps a record in ~/.memcairn)."""
     from . import clientsetup as cs
 
-    cs.run_unsetup(Path.home(), lambda q: yes or typer.confirm(q, default=True), typer.echo)
+    cs.run_unsetup(Path.home(), lambda q: yes or typer.confirm(q, default=True), typer.echo,
+                   only=only)
 
 
 @app.command()

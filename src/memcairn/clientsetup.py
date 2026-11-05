@@ -10,9 +10,14 @@ Offered changes:
   manual MCP entry, since with the plugin the token lives in the keychain;
 - manual-mcp: remove a manual "memory" MCP entry from ~/.claude.json (the plugin has one);
 - manual-hook: remove a manual SessionStart hook that curls /context (the plugin has one);
-- auto-memory: turn off Claude Code's built-in auto memory (MEMORY.md is read into every
-  session; with Memcairn it is redundant): autoMemoryEnabled = false;
-- sync-hook: run `memcairn sync --quiet` at session start (only when sync.toml exists).
+- automemory: share Claude Code's auto memory folder of this project with your other
+  machines through Memcairn (a section in ~/.memcairn/sync.toml). Auto memory keeps
+  working as before (loaded every session, works offline); it just follows you around;
+- sync-hook: run `memcairn sync --quiet` at session start and end (when there is
+  something to sync);
+- enable-auto-memory: turn auto memory back on if an earlier `setup` turned it off;
+- auto-memory: turn auto memory OFF, only with --disable-auto-memory (for people who want
+  Memcairn as their only memory; most people should keep auto memory).
 """
 
 from __future__ import annotations
@@ -57,8 +62,37 @@ def plugin_enabled(home: Path) -> bool:
     return any(k.split("@")[0] == PLUGIN and v for k, v in enabled.items())
 
 
-def _session_groups(settings: dict) -> list[dict]:
-    return (settings.get("hooks") or {}).get("SessionStart") or []
+def _session_groups(settings: dict, event: str = "SessionStart") -> list[dict]:
+    return (settings.get("hooks") or {}).get(event) or []
+
+
+AM_BEGIN = "# >>> memcairn setup: shared auto memory"
+AM_END = "# <<< memcairn setup"
+
+
+def _git_root(cwd: Path) -> Path | None:
+    import subprocess
+
+    git = shutil.which("git")
+    if not git:
+        return None
+    r = subprocess.run([git, "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    return Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+
+
+def project_memory_dir(home: Path, cwd: Path, settings: dict) -> Path:
+    """Where Claude Code keeps auto memory for the project at cwd (its git root)."""
+    custom = settings.get("autoMemoryDirectory")
+    if custom:
+        return Path(custom).expanduser()
+    root = _git_root(cwd) or cwd
+    return home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(root)) / "memory"
+
+
+def automemory_block(folder: Path) -> str:
+    return (f"\n{AM_BEGIN}\n[automemory]\ndir = \"{folder.as_posix()}\"\n"
+            f"prefix = \"automemory\"\n{AM_END}\n")
 
 
 def _is_context_hook(group: dict) -> bool:
@@ -75,7 +109,9 @@ def _exe() -> str:
     return Path(found or sys.argv[0]).as_posix()
 
 
-def plan(home: Path) -> list[Change]:
+def plan(home: Path, cwd: Path | None = None, *,
+         disable_auto_memory: bool = False) -> list[Change]:
+    cwd = cwd or Path.cwd()
     claude_json, settings_path = home / ".claude.json", home / ".claude" / "settings.json"
     claude, settings = _load(claude_json), _load(settings_path)
     plugin = plugin_enabled(home)
@@ -111,23 +147,44 @@ def plan(home: Path) -> list[Change]:
         out.append(Change("manual-hook", "remove the manual SessionStart hook that loads "
                           "/context (the plugin provides it)", settings_path, "hooks",
                           drop_hook, {"groups": ctx}))
-    if settings.get("autoMemoryEnabled") is not False:
+    auto_off = settings.get("autoMemoryEnabled") is False
+    by_setup = any(a["id"] == "auto-memory" for a in load_state(home))
+    if disable_auto_memory and not auto_off:
         def no_auto(d: dict) -> None:
             d["autoMemoryEnabled"] = False
-        out.append(Change("auto-memory", "turn off Claude Code auto memory (MEMORY.md is "
-                          "read into every session; Memcairn replaces it)", settings_path,
-                          "autoMemoryEnabled", no_auto,
+        out.append(Change("auto-memory", "turn off Claude Code auto memory (Memcairn becomes "
+                          "your only memory)", settings_path, "autoMemoryEnabled", no_auto,
                           {"previous": settings.get("autoMemoryEnabled")}))
-    if (home / ".memcairn" / "sync.toml").is_file() and not any(
-            _is_sync_hook(g) for g in _session_groups(settings)):
-        group = {"matcher": MATCHER, "hooks": [
-            {"type": "command", "command": f'"{_exe()}" sync --quiet', "timeout": 15}]}
+    elif auto_off and by_setup and not disable_auto_memory:
+        def auto_on(d: dict) -> None:
+            d.pop("autoMemoryEnabled", None)
+        out.append(Change("enable-auto-memory", "turn Claude Code auto memory back on (an "
+                          "earlier memcairn setup turned it off; Memcairn now complements it)",
+                          settings_path, "autoMemoryEnabled", auto_on, {"previous": False}))
+        auto_off = False
 
-        def add_sync(d: dict) -> None:
-            d.setdefault("hooks", {}).setdefault("SessionStart", []).append(group)
-        out.append(Change("sync-hook", "sync shared documents at session start "
-                          "(memcairn sync --quiet)", settings_path, "hooks", add_sync,
-                          {"group": group}))
+    sync_toml = home / ".memcairn" / "sync.toml"
+    toml_text = sync_toml.read_text(encoding="utf-8") if sync_toml.is_file() else ""
+    folder = project_memory_dir(home, cwd, settings)
+    share = not auto_off and "[automemory]" not in toml_text
+    if share:
+        out.append(Change("automemory", f"share this project's auto memory ({folder}) with "
+                          "your other machines", sync_toml, "", lambda d: None,
+                          {"block": automemory_block(folder)}))
+    if sync_toml.is_file() or share:
+        groups = {}
+        for event, matcher in (("SessionStart", MATCHER), ("SessionEnd", None)):
+            if not any(_is_sync_hook(g) for g in _session_groups(settings, event)):
+                g = {"hooks": [{"type": "command", "command": f'"{_exe()}" sync --quiet',
+                                "timeout": 15}]}
+                groups[event] = {"matcher": matcher, **g} if matcher else g
+        if groups:
+            def add_sync(d: dict) -> None:
+                for event, g in groups.items():
+                    d.setdefault("hooks", {}).setdefault(event, []).append(g)
+            out.append(Change("sync-hook", "run memcairn sync --quiet at session "
+                              + " and ".join(e.removeprefix("Session").lower() for e in groups),
+                              settings_path, "hooks", add_sync, {"groups": groups}))
     return out
 
 
@@ -137,6 +194,8 @@ _BEARER = re.compile(r"(Bearer\s+)[^\s\"]+")
 def diff(change: Change, before: dict, after: dict) -> str:
     if change.id == "client":
         return f"+ {change.file}: url, token (readable by you only)"
+    if change.id == "automemory":
+        return "\n".join(f"+ {line}" for line in change.undo["block"].strip().splitlines())
 
     def dump(d: dict) -> list[str]:
         if change.key not in d:
@@ -180,8 +239,9 @@ def load_state(home: Path) -> list[dict]:
 
 
 def run_setup(home: Path, confirm: Callable[[Change, str], bool],
-              echo: Callable[[str], None]) -> int:
-    changes = plan(home)
+              echo: Callable[[str], None], cwd: Path | None = None,
+              disable_auto_memory: bool = False) -> int:
+    changes = plan(home, cwd, disable_auto_memory=disable_auto_memory)
     if not plugin_enabled(home):
         echo("The Memcairn plugin is not enabled in Claude Code. Install it first:\n"
              "  /plugin marketplace add shanislav/memcairn\n"
@@ -193,7 +253,8 @@ def run_setup(home: Path, confirm: Callable[[Change, str], bool],
     applied, backed, docs = load_state(home), set(), {}
     done = 0
     for c in changes:
-        doc = docs.setdefault(c.file, _load(c.file)) if c.id != "client" else {}
+        special = c.id in ("client", "automemory")
+        doc = {} if special else docs.setdefault(c.file, _load(c.file))
         after = copy.deepcopy(doc)
         c.apply(after)
         if not confirm(c, diff(c, doc, after)):
@@ -201,6 +262,14 @@ def run_setup(home: Path, confirm: Callable[[Change, str], bool],
         if c.id == "client":
             url, token = client._claude_json("memory", home)
             client.write_client(url.rstrip("/").removesuffix("/mcp"), token, c.file)
+        elif c.id == "automemory":
+            c.file.parent.mkdir(parents=True, exist_ok=True)
+            if c.file.is_file() and c.file not in backed:
+                shutil.copy2(c.file, c.file.with_name(f"{c.file.name}.pre-memcairn-{_stamp()}"))
+                backed.add(c.file)
+            text = c.file.read_text(encoding="utf-8") if c.file.is_file() else (
+                "# memcairn sync: url/token come from ~/.memcairn/client.toml\n")
+            c.file.write_text(text.rstrip("\n") + "\n" + c.undo["block"], encoding="utf-8")
         else:
             _write_json(c.file, after, backed)
             docs[c.file] = after
@@ -214,7 +283,8 @@ def run_setup(home: Path, confirm: Callable[[Change, str], bool],
     return done
 
 
-def run_unsetup(home: Path, confirm: Callable[[str], bool], echo: Callable[[str], None]) -> int:
+def run_unsetup(home: Path, confirm: Callable[[str], bool], echo: Callable[[str], None],
+                only: str | None = None) -> int:
     applied = load_state(home)
     if not applied:
         echo("nothing recorded by memcairn setup")
@@ -223,28 +293,36 @@ def run_unsetup(home: Path, confirm: Callable[[str], bool], echo: Callable[[str]
     kept, done = [], 0
     for a in reversed(applied):
         path, undo = Path(a["file"]), a["undo"]
-        if not confirm(f"revert {a['id']} in {path}?"):
+        if (only and a["id"] != only) or not confirm(f"revert {a['id']} in {path}?"):
             kept.insert(0, a)
             continue
         if a["id"] == "client":
             path.unlink(missing_ok=True)
+        elif a["id"] == "automemory":
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+                text = re.sub(rf"\n?{re.escape(AM_BEGIN)}.*?{re.escape(AM_END)}\n?", "\n",
+                              text, flags=re.S)
+                path.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
         else:
             doc = _load(path)
             if a["id"] == "manual-mcp":
                 doc.setdefault("mcpServers", {})["memory"] = undo["spec"]
             elif a["id"] == "manual-hook":
                 doc.setdefault("hooks", {}).setdefault("SessionStart", []).extend(undo["groups"])
-            elif a["id"] == "auto-memory":
+            elif a["id"] in ("auto-memory", "enable-auto-memory"):
                 if undo.get("previous") is None:
                     doc.pop("autoMemoryEnabled", None)
                 else:
                     doc["autoMemoryEnabled"] = undo["previous"]
             elif a["id"] == "sync-hook":
-                groups = [g for g in _session_groups(doc) if g != undo["group"]]
-                if groups:
-                    doc["hooks"]["SessionStart"] = groups
-                else:
-                    doc.get("hooks", {}).pop("SessionStart", None)
+                added = undo.get("groups") or {"SessionStart": undo["group"]}  # older records
+                for event, group in added.items():
+                    groups = [g for g in _session_groups(doc, event) if g != group]
+                    if groups:
+                        doc["hooks"][event] = groups
+                    else:
+                        doc.get("hooks", {}).pop(event, None)
             _write_json(path, doc, backed)
         done += 1
     _save_state(home, kept)

@@ -27,6 +27,15 @@ class FakeRemote:
             return 200, {"version": row["version"], "sha": row["sha"]}
         except Conflict as e:
             return 409, {"error": str(e)}
+        except ValueError as e:
+            return 400, {"error": str(e)}
+
+    def delete(self, name, base_version):
+        cur = docs.get_doc(self.store, name)
+        if cur["version"] != base_version:
+            return 409, {"error": "changed since"}
+        docs.delete_doc(self.store, name)
+        return 200, {"deleted": name}
 
     def todo(self, text):
         self.todos.append(text)
@@ -143,6 +152,11 @@ def test_docs_http_routes(tmp_path):
         assert http.get("/docs", headers=h).json()[0]["name"] == "servers"
         assert http.put("/docs/secret", json={"content": "password=hunter2secret",
                                               "base_version": 0}, headers=h).status_code == 400
+        # delete only the version the caller last saw
+        assert http.delete("/docs/servers?base_version=7", headers=h).status_code == 409
+        assert http.delete("/docs/servers?base_version=1").status_code == 401
+        assert http.delete("/docs/servers?base_version=1", headers=h).status_code == 200
+        assert http.get("/docs/servers", headers=h).status_code == 404
 
 
 def test_import_turns_long_notes_into_documents(tmp_path):
@@ -174,3 +188,45 @@ def test_get_reads_a_document_through_mcp():
     srv = build(store, stdio_client="t")
     res = anyio.run(lambda: srv.call_tool("get", {"ids": ["doc:servers"]}))
     assert "alpha 10.0.0.1" in "".join(c.text for c in res.content)
+
+
+def sync_set(remote, folder, state, skip=()):
+    from memcairn.sync import automemory_entries
+
+    out = []
+    for e in automemory_entries(folder, "automemory", remote.list(), set(skip), out):
+        line = sync_entry(remote, e, remote.list().get(e.name), state)
+        if line:
+            out.append(line)
+    return out
+
+
+def test_auto_memory_folder_is_shared_and_deletes_travel_safely(tmp_path):
+    r = FakeRemote()
+    pc, srv = tmp_path / "pc-memory", tmp_path / "srv-memory"
+    pc.mkdir()
+    (pc / "MEMORY.md").write_text("- [Read-only](feedback_ro.md): firm servers\n", "utf-8")
+    (pc / "feedback_ro.md").write_text("Only read on firm servers.\n", "utf-8")
+    (pc / "servers.md").write_text("mapped elsewhere\n", "utf-8")
+    (pc / "secret.md").write_text("db password=hunter2secret\n", "utf-8")
+    s_pc, s_srv = {}, {}
+    out = sync_set(r, pc, s_pc, skip={(pc / "servers.md").resolve()})
+    assert any("skipped secret.md" in line for line in out)
+    assert set(r.list()) == {"automemory.memory", "automemory.feedback_ro"}
+
+    sync_set(r, srv, s_srv)  # second machine, empty folder: gets everything
+    assert (srv / "MEMORY.md").read_text("utf-8").startswith("- [Read-only]")
+    assert (srv / "feedback_ro.md").is_file()
+
+    (pc / "feedback_ro.md").unlink()  # deleted on the PC, unchanged on the server
+    assert any("deleted automemory.feedback_ro" in x for x in sync_set(r, pc, s_pc))
+    assert any("removed feedback_ro.md" in x for x in sync_set(r, srv, s_srv))
+    assert not (srv / "feedback_ro.md").exists()
+
+    (pc / "feedback_x.md").write_text("x\n", "utf-8")
+    sync_set(r, pc, s_pc), sync_set(r, srv, s_srv)
+    (srv / "feedback_x.md").write_text("x changed on the server machine\n", "utf-8")
+    sync_set(r, srv, s_srv)  # uploads the change
+    (pc / "feedback_x.md").unlink()  # the PC deletes a file someone else just changed
+    sync_set(r, pc, s_pc)
+    assert (pc / "feedback_x.md").read_text("utf-8").startswith("x changed")  # kept

@@ -18,7 +18,26 @@ Single SQLite file, no external services required.
 7. **Small ops footprint.** `uvx memcairn serve` or one Docker container. SQLite + local
    embedding model on CPU.
 
-Non-goals (for now): multi-tenant SaaS, distributed storage, LLM-mandatory pipelines.
+Non-goals (for now): multi-tenant SaaS, distributed storage, LLM-mandatory pipelines,
+teams (that needs access rules: who may read and change what).
+
+### A complement to Claude Code's own memory, not a replacement (2026-11-05)
+
+Claude Code ships two memory layers, both on by default: `CLAUDE.md` (written by the
+user) and auto memory (written by Claude, `MEMORY.md` index loaded every session, local
+to one machine and one repository). Most users keep both, and memory MCP servers are
+used next to them, for what they can't do: share across machines and tools, and hold far
+more than fits into every session. Turning auto memory off by default would fight the
+platform and leave users without memory whenever the server is out of reach; we tried it
+on our own setup and lost the always-on rules.
+
+So: the plugin never changes Claude Code's memory settings. The MCP instructions split
+the work: auto memory keeps how the user wants Claude to work (small, always loaded,
+works offline); Memcairn keeps facts about the world (large, searched on demand,
+shared). What auto memory lacks, sharing between one person's machines, Memcairn adds as
+an option by syncing the auto memory folder as documents (deletions included, guarded
+by version checks). Disabling auto memory stays possible for people who want a single
+store (`setup --disable-auto-memory`).
 
 ## What we take from whom
 

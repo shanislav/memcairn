@@ -10,6 +10,14 @@ Config (TOML, default ~/.memcairn/sync.toml), all optional except what you want 
     name = "servers"                       # the document name on the server
     path = "~/notes/servers.md"            # where it lives on this machine
 
+    [automemory]                           # share Claude Code's auto memory folder
+    dir = "~/.claude/projects/<project>/memory"   # this machine's folder for the project
+    prefix = "automemory"                  # document names: automemory.<file>; same everywhere
+
+The auto memory set is every *.md in that folder (except files mapped by [[file]]).
+Unlike [[file]] entries, deletions travel too: a file deleted on one machine is deleted
+on the server and then on the others, but only if nobody changed it meanwhile.
+
 Per file, only when something changed (by content hash against the last sync):
 - changed here only → upload; changed on the server only → download;
 - changed on both → three-way merge with `git merge-file` against the last synced
@@ -23,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -43,6 +52,7 @@ STATE = HOME / "sync-state.json"
 class Entry:
     name: str
     path: Path
+    deletes: bool = False  # propagate deletions (auto memory set)
 
 
 class Remote:
@@ -79,6 +89,9 @@ class Remote:
         return self._req("PUT", f"/docs/{name}", {"content": content,
                                                   "base_version": base_version})
 
+    def delete(self, name: str, base_version: int) -> tuple[int, dict]:
+        return self._req("DELETE", f"/docs/{name}?base_version={base_version}")
+
     def todo(self, text: str) -> None:
         """Leave an open todo through the MCP endpoint, so the next session sees it."""
         body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
@@ -95,14 +108,47 @@ class Remote:
             urllib.request.urlopen(req, timeout=10).read()
 
 
-def load_config(path: Path) -> tuple[str | None, str | None, Path | None, list[Entry]]:
+def load_config(path: Path) -> tuple[str | None, str | None, Path | None, list[Entry],
+                                      tuple[Path, str] | None]:
     cfg = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     from .client import auth
 
     url, token = auth(cfg.get("url"), cfg.get("token"), name=cfg.get("server", "memory"))
     docs_dir = Path(cfg["docs_dir"]).expanduser() if cfg.get("docs_dir") else None
     entries = [Entry(f["name"], Path(f["path"]).expanduser()) for f in cfg.get("file", [])]
-    return url, token, docs_dir, entries
+    am = cfg.get("automemory")
+    automemory = ((Path(am["dir"]).expanduser(), am.get("prefix", AUTOMEMORY))
+                  if am and am.get("dir") else None)
+    return url, token, docs_dir, entries, automemory
+
+
+AUTOMEMORY = "automemory"
+
+
+def doc_name(prefix: str, stem: str) -> str:
+    return f"{prefix}.{re.sub(r'[^a-z0-9._-]', '-', stem.lower())}"[:80]
+
+
+def file_name(stem: str) -> str:
+    return "MEMORY.md" if stem == "memory" else f"{stem}.md"
+
+
+def automemory_entries(folder: Path, prefix: str, server_names, skip: set[Path],
+                       out: list[str]) -> list[Entry]:
+    """The shared auto memory set: local *.md files plus documents only the server has."""
+    names: dict[str, Path] = {}
+    for p in sorted(folder.glob("*.md")) if folder.is_dir() else []:
+        if p.resolve() in skip:
+            continue
+        n = doc_name(prefix, p.stem)
+        if n in names:
+            out.append(f"skipped {p.name}: same document name as {names[n].name}")
+            continue
+        names[n] = p
+    for n in server_names:
+        if n.startswith(prefix + ".") and n not in names:
+            names[n] = folder / file_name(n[len(prefix) + 1:])
+    return [Entry(n, p, deletes=True) for n, p in sorted(names.items())]
 
 
 def merge3(local: str, base: str, remote: str) -> tuple[str, bool]:
@@ -143,13 +189,24 @@ def sync_entry(remote: Remote, e: Entry, server: dict | None, state: dict) -> st
         state[e.name] = {"version": version, "sha": digest}
 
     if server is None and local is None:
+        state.pop(e.name, None)
         return None
+    if e.deletes and known and server is None and not local_changed:
+        e.path.unlink()  # deleted on the server (by another machine), unchanged here
+        state.pop(e.name, None)
+        return f"removed {e.path.name} (deleted on another machine)"
+    if e.deletes and known and local is None and not remote_changed:
+        status, data = remote.delete(e.name, known["version"])
+        if status == 200:
+            state.pop(e.name, None)
+            return f"deleted {e.name} on the server (deleted here)"
+        server = remote.list().get(e.name)  # changed meanwhile: keep it, download below
     if server is None:  # new here
         status, data = remote.put(e.name, local, 0)
         if status == 200:
             done(data["version"], data["sha"])
             return f"uploaded new {e.name}"
-        return f"error uploading {e.name}: {data}"
+        return _upload_error(e, data)
     if local is None:  # new on the server
         doc = remote.get(e.name)
         _write(e.path, doc["content"])
@@ -163,7 +220,7 @@ def sync_entry(remote: Remote, e: Entry, server: dict | None, state: dict) -> st
             done(data["version"], data["sha"])
             return f"uploaded {e.name} v{data['version']}"
         if status != 409:
-            return f"error uploading {e.name}: {data}"
+            return _upload_error(e, data)
         server = remote.list().get(e.name)  # someone wrote meanwhile: fall through to merge
     if remote_changed and not local_changed:
         doc = remote.get(e.name)
@@ -192,19 +249,31 @@ def sync_entry(remote: Remote, e: Entry, server: dict | None, state: dict) -> st
     return f"CONFLICT {e.name}: see {conflict}"
 
 
+def _upload_error(e: Entry, data) -> str:
+    msg = (data or {}).get("error", data) if isinstance(data, dict) else data
+    if "secret" in str(msg):
+        return f"skipped {e.path.name}: {msg} (the file stays local)"
+    return f"error uploading {e.name}: {msg}"
+
+
 def run(config: Path = DEFAULT_CONFIG, state_path: Path = STATE) -> list[str]:
-    url, token, docs_dir, entries = load_config(config)
+    url, token, docs_dir, entries, automemory = load_config(config)
     if not url:
         return ["no server configured: run 'memcairn setup' or set url/token in sync.toml"]
     remote = Remote(url, token)
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
     server = remote.list()
+    out: list[str] = []
+    prefix = automemory[1] if automemory else AUTOMEMORY
+    if automemory:
+        skip = {e.path.resolve() for e in entries}
+        entries += automemory_entries(automemory[0], prefix, server, skip, out)
     if docs_dir:  # mirror every shared document not mapped explicitly
         mapped = {e.name for e in entries}
         local_docs = {p.stem for p in docs_dir.glob("*.md")} if docs_dir.is_dir() else set()
         for name in sorted((set(server) | local_docs) - mapped):
-            entries.append(Entry(name, docs_dir / f"{name}.md"))
-    out = []
+            if not name.startswith(prefix + "."):  # auto memory belongs in its own folder
+                entries.append(Entry(name, docs_dir / f"{name}.md"))
     for e in entries:
         try:
             line = sync_entry(remote, e, server.get(e.name), state)

@@ -127,9 +127,16 @@ def check_hook(home: Path) -> list[Finding]:
     except (OSError, json.JSONDecodeError):
         settings = {}
     out = []
-    if settings.get("autoMemoryEnabled") is not False:
-        out.append(Finding(WARN, "Claude Code auto memory is on: MEMORY.md is read into every "
-                           "session besides Memcairn", "memcairn setup can turn it off"))
+    sync_toml = home / ".memcairn" / "sync.toml"
+    shared = sync_toml.is_file() and "[automemory]" in sync_toml.read_text(encoding="utf-8")
+    if settings.get("autoMemoryEnabled") is False:
+        out.append(Finding(OK, "auto memory is off: Memcairn is the only memory (preferences "
+                           "go there as feedback)"))
+    elif shared:
+        out.append(Finding(OK, "auto memory is on and shared with your other machines"))
+    else:
+        out.append(Finding(OK, "auto memory is on, on this machine only",
+                           "memcairn setup can share it with your other machines"))
     hooks = settings.get("hooks") or {}
     cmds = [h.get("command", "") for g in hooks.get("SessionStart", []) for h in g.get("hooks", [])]
     if plugin_enabled(home):

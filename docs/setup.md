@@ -121,12 +121,40 @@ Windows 10+, macOS and most Linux systems.
 the changes the plugin deliberately does not make. It asks about each one, shows a diff,
 and backs up the file (`*.pre-memcairn-<time>`) before writing:
 
-- turn off Claude Code's built-in auto memory (`autoMemoryEnabled: false`). Otherwise
-  `MEMORY.md` is read into every session on top of Memcairn;
-- run `memcairn sync --quiet` at session start, if you sync files (section 5b);
+- **share your auto memory with your other machines** (run it in your main project
+  folder): Claude Code's own auto memory keeps working exactly as before, and Memcairn
+  carries its folder to your other machines (see "Memcairn and Claude Code's own memory"
+  below);
+- run `memcairn sync --quiet` at session start and end, which is what carries it;
 - move from a manual setup: remove the hand-made `memory` MCP entry and `/context` hook,
   now that the plugin provides both, and keep the URL and token for the CLI in
   `~/.memcairn/client.toml`.
+
+`memcairn setup --disable-auto-memory` also turns auto memory off, if you want Memcairn
+as your only memory. Most people shouldn't: you lose memory whenever the server is out of
+reach.
+
+### Memcairn and Claude Code's own memory
+
+Claude Code already remembers things: `CLAUDE.md` files you write, and **auto memory**,
+notes Claude writes itself when you correct it (on by default; its index `MEMORY.md` is
+loaded into every session, the rest is read when needed). Memcairn adds to that and
+replaces none of it:
+
+| | `CLAUDE.md` | auto memory | Memcairn |
+|---|---|---|---|
+| who writes it | you | Claude | Claude (and you, via `/ui`) |
+| what | instructions, conventions | how you want Claude to work: preferences, rules, corrections | facts about the world: projects, servers, decisions, procedures, incidents, todos |
+| loaded | every session | index every session | a ~900-token overview at start; the rest on request (`recall`) |
+| where | git / your machine | one machine, one project | your server, every machine and instance |
+| without network | yes | yes | no (overview and recall are skipped) |
+
+Memcairn's MCP instructions tell Claude to keep this split and never to store the same
+thing twice. With sharing on (`memcairn setup`), the auto memory folder of your main
+project is synced as documents named `automemory.<file>`: a preference you taught Claude
+on your laptop applies on your server too, it stays readable offline because the files
+are local, and `recall` finds it as well. Sharing is meant for **one person's machines**;
+auto memory holds personal preferences, so it is not a team feature.
 
 `memcairn setup --dry-run` only shows the changes. `memcairn unsetup` reverts exactly what
 setup changed, from its record in `~/.memcairn/setup-state.json`. `memcairn doctor` tells
@@ -400,9 +428,18 @@ docs_dir = "~/.memcairn/docs"   # optional: mirror every shared document here
 [[file]]
 name = "servers"                # document name on the server
 path = "~/notes/servers.md"     # where it lives on this machine
+
+[automemory]                    # optional: share Claude Code's auto memory folder
+dir = "~/.claude/projects/<project>/memory"   # this machine's folder (setup fills it in)
+prefix = "automemory"           # document names automemory.<file>, same on every machine
 ```
 
-The same `name` can map to a different `path` on each machine.
+The same `name` can map to a different `path` on each machine. The auto memory folder
+is synced file by file (except files a `[[file]]` entry already maps), and unlike
+`[[file]]` entries, **deletions travel too**: a topic file Claude deletes on one machine
+is deleted on the server and then on the others, but only if nobody changed it in the
+meantime; otherwise it is kept. A file the server refuses (it looks like it holds a
+password) stays local and sync says so.
 
 Run `memcairn sync`, or put it in the SessionStart hook before the context call. With
 `--quiet` it prints nothing unless there is a conflict:

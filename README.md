@@ -61,7 +61,7 @@ deployment, multiple machines, scopes, migration and troubleshooting:
 ### Advanced (optional)
 
 - `uv tool install git+https://github.com/shanislav/memcairn` gives you the `memcairn`
-  CLI on a client: `memcairn setup` offers to turn off Claude Code's built-in auto memory
+  CLI on a client: `memcairn setup` offers to share Claude Code's own auto memory across your machines
   and to sync files (each change shown as a diff, backed up, y/n; `memcairn unsetup`
   reverts), `memcairn doctor` checks the setup.
 - Without the plugin, or for other MCP clients:
