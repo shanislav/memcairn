@@ -150,7 +150,13 @@ def token_add(name: str, scope: str = typer.Option("global", help="Default scope
                                       help="Public server URL, for the connect instructions."),
               quiet: bool = typer.Option(False, "--quiet", help="Print only the token.")):
     """Create a client and print its token (shown once) with ready connect instructions."""
-    from .server import hash_token
+    from .auth import check_name
+    from .db import hash_token
+
+    try:
+        check_name(name)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
 
     store = open_store(db, vectors=False)
     token = "mcn_" + secrets.token_urlsafe(32)
@@ -202,7 +208,7 @@ def token_list(db: Path = DbOpt):
 @token_app.command("revoke")
 def token_revoke(name: str, db: Path = DbOpt):
     """Revoke a client's token."""
-    from .pairing import revoke_client
+    from .auth import revoke_client
 
     ok = revoke_client(open_store(db, vectors=False), name)
     typer.echo("revoked, with its OAuth and browser sessions" if ok
@@ -449,11 +455,11 @@ def login_link(db: Path = DbOpt,
                url: str = typer.Option(None, envvar="MEMCAIRN_PUBLIC_URL",
                                        help="Public server URL.")):
     """Print a web UI link that logs in once (valid 15 minutes). Run it on the server."""
-    from . import pairing
+    from . import auth
 
-    code = pairing.create(open_store(db, vectors=False), "login", by="cli")
+    code = auth.create(open_store(db, vectors=False), "login", by="cli")
     base = (url or "http://127.0.0.1:8765").rstrip("/").removesuffix("/mcp")
-    typer.echo(f"{base}/ui#login={code}\n(single use, valid {pairing.LOGIN_TTL // 60} "
+    typer.echo(f"{base}/ui#login={code}\n(single use, valid {auth.LOGIN_TTL // 60} "
                "minutes; the browser then stays logged in for 7 days)")
 
 
@@ -461,16 +467,16 @@ def login_link(db: Path = DbOpt,
 def password(db: Path = DbOpt,
              clear: bool = typer.Option(False, "--clear", help="Remove the password.")):
     """Set the web UI password (asked twice, never shown). Run it on the server."""
-    from . import pairing
+    from . import auth
 
     store = open_store(db, vectors=False)
     if clear:
-        pairing.set_password(store, None)
+        auth.set_password(store, None)
         typer.echo("password removed; log in with memcairn login-link")
         return
     new = typer.prompt("new web UI password", hide_input=True, confirmation_prompt=True)
     try:
-        pairing.set_password(store, new)
+        auth.set_password(store, new)
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
     typer.echo("password set; browsers logged in with the old one are logged out")
@@ -483,16 +489,16 @@ def add_machine(name: str = typer.Argument(..., help="Name for the new machine o
                                         help="Public server URL.")):
     """Print a one-time pairing code (10 minutes) for a new machine. Run it on the server;
     the same as Add machine in the web UI."""
-    from . import pairing
+    from . import auth
 
     try:
-        code = pairing.create(open_store(db, vectors=False), "pair", name, by="cli")
+        code = auth.create(open_store(db, vectors=False), "pair", name, by="cli")
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
     base = (url or "https://<your-server>").rstrip("/").removesuffix("/mcp")
     typer.echo(f"On the new machine:  memcairn pair {base} {code}\n"
                f"claude.ai / mobile:  add the connector {base}/mcp and enter {code} when asked\n"
-               f"(single use, valid {pairing.PAIR_TTL // 60} minutes)")
+               f"(single use, valid {auth.PAIR_TTL // 60} minutes)")
 
 
 @app.command()
@@ -502,14 +508,14 @@ def ui(db: Path = DbOpt, port: int = typer.Option(0, help="Port; 0 picks a free 
     import socket
     import webbrowser
 
-    from . import pairing
+    from . import auth
 
     if not port:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
     store = open_store(db)
-    link = f"http://127.0.0.1:{port}/ui#login={pairing.create(store, 'login', by='ui')}"
+    link = f"http://127.0.0.1:{port}/ui#login={auth.create(store, 'login', by='ui')}"
     typer.echo(f"Memcairn web UI: {link}\n(Ctrl+C to stop)")
     if not no_browser:
         threading.Timer(1.0, webbrowser.open, args=(link,)).start()

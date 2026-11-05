@@ -30,7 +30,8 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from .db import now
+from .auth import pair, session_client, static_client
+from .db import hash_token, now
 from .store import Store
 
 ACCESS_TTL = 24 * 3600
@@ -39,29 +40,10 @@ CODE_TTL = 300
 PENDING_TTL = 900
 
 
-def _hash(value: str) -> str:
-    import hashlib
-
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
 class MemcairnOAuth:
     def __init__(self, store: Store, public_url: str):
         self.store = store
         self.public_url = public_url.rstrip("/")
-
-    # ---------- static tokens (Claude Code, CLI, hooks) ----------
-
-    def client_for_static(self, token: str) -> str | None:
-        row = self.store.conn.execute(
-            "SELECT name FROM client WHERE token_hash = ? AND revoked_at IS NULL",
-            (_hash(token),)).fetchone()
-        return row["name"] if row else None
-
-    def _seen(self, name: str) -> None:
-        with self.store.lock:
-            self.store.conn.execute("UPDATE client SET last_seen_at = ? WHERE name = ?",
-                                    (now(), name))
 
     # ---------- clients ----------
 
@@ -102,10 +84,8 @@ class MemcairnOAuth:
         row, params = self.pending(req)
         if not row:
             raise AuthorizeError("invalid_request", "approval expired, start again")
-        name = self.client_for_static(memcairn_token.strip())
+        name = static_client(self.store, memcairn_token.strip())
         if not name:  # or a pairing code from "Add machine" in the web UI
-            from .pairing import pair
-
             paired = pair(self.store, memcairn_token)
             name = paired[0] if paired else None
         if not name:
@@ -121,7 +101,7 @@ class MemcairnOAuth:
             self.store.conn.execute("DELETE FROM oauth_pending WHERE id = ?", (req,))
             self.store.conn.execute(
                 "INSERT INTO oauth_code (code_hash, data, expires_at) VALUES (?,?,?)",
-                (_hash(code), data.model_dump_json(exclude={"code"}), data.expires_at))
+                (hash_token(code), data.model_dump_json(exclude={"code"}), data.expires_at))
         return construct_redirect_uri(str(params.redirect_uri), code=code, state=params.state)
 
     def deny(self, req: str) -> str | None:
@@ -137,7 +117,7 @@ class MemcairnOAuth:
                                       authorization_code: str) -> AuthorizationCode | None:
         row = self.store.conn.execute(
             "SELECT data, expires_at FROM oauth_code WHERE code_hash = ?",
-            (_hash(authorization_code),)).fetchone()
+            (hash_token(authorization_code),)).fetchone()
         if not row or row["expires_at"] < time.time():
             return None
         data = json.loads(row["data"]) | {"code": authorization_code}
@@ -150,8 +130,8 @@ class MemcairnOAuth:
                resource: str | None) -> OAuthToken:
         access, refresh = "mca_" + secrets.token_urlsafe(32), "mcr_" + secrets.token_urlsafe(32)
         t = int(time.time())
-        rows = [(_hash(access), "access", client_id, subject, json.dumps(scopes), resource,
-                 t + ACCESS_TTL), (_hash(refresh), "refresh", client_id, subject,
+        rows = [(hash_token(access), "access", client_id, subject, json.dumps(scopes), resource,
+                 t + ACCESS_TTL), (hash_token(refresh), "refresh", client_id, subject,
                                    json.dumps(scopes), resource, t + REFRESH_TTL)]
         self.store.conn.executemany(
             """INSERT INTO oauth_token (token_hash, kind, client_id, subject, scopes, resource,
@@ -164,7 +144,7 @@ class MemcairnOAuth:
         with self.store._tx():
             gone = self.store.conn.execute(
                 "DELETE FROM oauth_code WHERE code_hash = ?",
-                (_hash(authorization_code.code),)).rowcount == 0
+                (hash_token(authorization_code.code),)).rowcount == 0
             if gone:  # used twice
                 raise TokenError("invalid_grant", "authorization code already used")
             return self._issue(client.client_id, authorization_code.subject or "",
@@ -175,7 +155,7 @@ class MemcairnOAuth:
             """SELECT t.* FROM oauth_token t JOIN client c ON c.name = t.subject
                WHERE t.token_hash = ? AND t.kind = ? AND t.revoked_at IS NULL
                AND t.expires_at > ? AND c.revoked_at IS NULL""",
-            (_hash(token), kind, int(time.time()))).fetchone()
+            (hash_token(token), kind, int(time.time()))).fetchone()
         return row
 
     async def load_refresh_token(self, client: OAuthClientInformationFull,
@@ -191,19 +171,17 @@ class MemcairnOAuth:
                                      refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
         with self.store._tx():  # rotate: the old refresh token is spent
             self.store.conn.execute("UPDATE oauth_token SET revoked_at = ? WHERE token_hash = ?",
-                                    (now(), _hash(refresh_token.token)))
+                                    (now(), hash_token(refresh_token.token)))
             return self._issue(client.client_id, refresh_token.subject or "",
                                scopes or refresh_token.scopes, refresh_token.resource)
 
     async def load_access_token(self, token: str) -> AccessToken | None:
-        name = self.client_for_static(token)
+        name = static_client(self.store, token)
         if name:  # a plain Memcairn token
-            self._seen(name)
             return AccessToken(token=token, client_id=name, scopes=[])
         row = self._token_row(token, "access")
-        if not row:
+        if not row or not session_client(self.store, token):  # renews browser sessions
             return None
-        self._seen(row["subject"])
         return AccessToken(token=token, client_id=row["client_id"],
                            scopes=json.loads(row["scopes"]), expires_at=row["expires_at"],
                            resource=row["resource"], subject=row["subject"])
@@ -211,7 +189,7 @@ class MemcairnOAuth:
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         with self.store._tx():
             self.store.conn.execute("UPDATE oauth_token SET revoked_at = ? WHERE token_hash = ?",
-                                    (now(), _hash(token.token)))
+                                    (now(), hash_token(token.token)))
 
     async def exchange_identity_assertion(self, client, params) -> OAuthToken:
         raise TokenError("unsupported_grant_type", "not supported")

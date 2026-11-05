@@ -1,8 +1,9 @@
 """JSON API and the web UI (`/ui`): browse, search and edit memory in a browser.
 
-Same bearer tokens (or OAuth tokens) as MCP; the page itself is static and holds no
-data until a token is entered. Writes go through the store like any tool call, so they
-are versioned and recorded with the client name (`by=<token's client>`).
+The page itself is static and holds no data; it logs in with the web UI password, a
+one-time login link or a client token (see auth.py). Writes go through the store like any
+tool call, so they are versioned and recorded with the client name. Admin actions (add
+machine, revoke, permanent delete, password) need a browser session.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import docs, pairing
+from . import auth, docs
 from .store import Conflict, NotFound, Store
 
 UI = Path(__file__).with_name("ui.html")
@@ -31,11 +32,19 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
     def err(text: str, code: int = 400):
         return JSONResponse({"error": text}, status_code=code)
 
-    def guarded(fn):
+    def bearer(request) -> str:
+        h = request.headers.get("authorization", "")
+        return h[7:] if h.lower().startswith("bearer ") else ""
+
+    def guarded(fn, *, admin: bool = False):
+        """Any valid token; with admin=True only a browser session (or no auth at all), so a
+        machine's or connector's token can't mint new tokens or cut off others."""
         async def handler(request):
             ok, name = await authorize(request)
             if not ok:
                 return err("unauthorized", 401)
+            if admin and public_url and not auth.session_info(store, bearer(request)):
+                return err("only from the web UI (log in with your password)", 403)
             try:
                 return await fn(request, name)
             except NotFound as e:
@@ -58,7 +67,7 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
 
     async def search(request, name):
         p = request.query_params
-        q, limit = p.get("q", "").strip(), min(int(p.get("limit", 50)), 200)
+        q, limit = p.get("q", "").strip(), max(1, min(int(p.get("limit", 50)), 200))
         kind, entity, status = p.get("type") or None, p.get("entity") or None, p.get("status")
         if q:
             res = store.recall(q, limit=limit, deep=p.get("deep") == "1", type=kind,
@@ -148,18 +157,18 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         target = request.path_params["name"]
         if body.get("confirm") != target:
             return err("revoking needs confirm: \"<client name>\"")
-        if not pairing.revoke_client(store, target):
+        if not auth.revoke_client(store, target):
             return err(f"no active client {target!r}", 404)
         return JSONResponse({"revoked": target, "self": target == name})
 
     async def pair_code(request, name):
-        """"Add machine": a pairing code plus the command that uses it."""
+        """Add machine: a pairing code plus the command that uses it."""
         body = await request.json() if await request.body() else {}
         machine = (body.get("name") or "").strip()
-        code = pairing.create(store, "pair", machine, by=name)
+        code = auth.create(store, "pair", machine, by=name)
         url = (public_url or str(request.base_url)).rstrip("/")
         return JSONResponse({"code": code, "name": machine, "url": url,
-                             "expires_in": pairing.PAIR_TTL,
+                             "expires_in": auth.PAIR_TTL,
                              "command": f"memcairn pair {url} {code}"})
 
     async def documents(request, name):
@@ -176,13 +185,14 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
               ("/api/entities", entities, ["GET"]), ("/api/memory", create, ["POST"]),
               ("/api/memory/{id:int}", memory, ["GET", "POST"]),
               ("/api/memory/{id:int}/forget", forget, ["POST"]),
-              ("/api/memory/{id:int}/delete", delete, ["POST"]),
-              ("/api/entity/rename", rename, ["POST"]),
-              ("/api/client/{name}/revoke", revoke, ["POST"]), ("/api/overview", overview, ["GET"]),
+              ("/api/entity/rename", rename, ["POST"]), ("/api/overview", overview, ["GET"]),
               ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"])]
+    admin_routes = [("/api/memory/{id:int}/delete", delete), ("/api/client/{name}/revoke", revoke),
+                    ("/api/pair", pair_code)]
     for path, fn, methods in routes:
         mcp.custom_route(path, methods=methods)(guarded(fn))
-    mcp.custom_route("/api/pair", methods=["POST"])(guarded(pair_code))
+    for path, fn in admin_routes:
+        mcp.custom_route(path, methods=["POST"])(guarded(fn, admin=True))
 
     # no token yet: these trade a password or a one-time code for one
     async def body(request) -> dict:
@@ -195,60 +205,65 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
     async def body_code(request) -> str:
         return str((await body(request)).get("code", ""))
 
-    throttle = pairing.Throttle()
+    throttle = auth.Throttle()
+
+    async def password_ok(password: str) -> tuple[bool, object]:
+        """(ok, error response): throttled, and scrypt runs off the event loop."""
+        import anyio
+
+        wait = throttle.wait()
+        if wait:
+            return False, err(f"too many wrong passwords; try again in {wait // 60 + 1} min",
+                              429)
+        if await anyio.to_thread.run_sync(auth.verify_password, auth.stored_password(store),
+                                          password):
+            return True, None
+        throttle.failed()
+        return False, None
 
     @mcp.custom_route("/api/auth", methods=["GET"])
     async def auth_info(request):
-        return JSONResponse({"password": pairing.has_password(store)})
+        return JSONResponse({"password": auth.stored_password(store) is not None})
 
     @mcp.custom_route("/api/login", methods=["POST"])
     async def login(request):
         data = await body(request)
         if "password" in data:
-            wait = throttle.wait()
-            if wait:
-                return err(f"too many wrong passwords; try again in {wait // 60 + 1} min", 429)
-            if not pairing.check_password(store, str(data["password"])):
-                throttle.failed()
-                return err("wrong password", 401)
-            token = pairing.new_session(store, "password")
+            ok, blocked = await password_ok(str(data["password"]))
+            if not ok:
+                return blocked or err("wrong password", 401)
+            token = auth.new_session(store, "password")
         else:
-            token = pairing.web_session(store, str(data.get("code", "")))
+            token = auth.web_session(store, str(data.get("code", "")))
             if not token:
                 return err("unknown, used or expired login link", 401)
-        return JSONResponse({"token": token, "client": pairing.WEB_CLIENT})
-
-    def bearer(request) -> str:
-        h = request.headers.get("authorization", "")
-        return h[7:] if h.lower().startswith("bearer ") else ""
+        return JSONResponse({"token": token, "client": auth.WEB_CLIENT})
 
     async def logout(request, name):
-        return JSONResponse({"ended": pairing.end_session(store, bearer(request))})
+        return JSONResponse({"ended": auth.end_session(store, bearer(request))})
 
     async def password(request, name):
-        """Set or change the web UI password, from a browser session only. Changing it needs
-        the current one, unless this session came from a login link (the way back in)."""
-        info = pairing.session_info(store, bearer(request))
-        if not info:
-            return err("log in to the web UI first (memcairn password on the server works too)",
-                       403)
+        """Set or change the web UI password. Changing it needs the current one, except
+        within 15 minutes of logging in with a login link (the way back in)."""
+        import anyio
+
+        info = auth.session_info(store, bearer(request))
         data = await body(request)
-        if pairing.has_password(store) and info[0] != "link":
-            wait = throttle.wait()
-            if wait:
-                return err(f"too many wrong passwords; try again in {wait // 60 + 1} min", 429)
-            if not pairing.check_password(store, str(data.get("current", ""))):
-                throttle.failed()
-                return err("the current password is wrong", 401)
-        pairing.set_password(store, str(data.get("new", "")))
+        if auth.stored_password(store) and not (info and auth.fresh_from_link(info)):
+            ok, blocked = await password_ok(str(data.get("current", "")))
+            if not ok:
+                return blocked or err("the current password is wrong (forgot it? log in with "
+                                      "memcairn login-link, then set a new one)", 401)
+        stored = await anyio.to_thread.run_sync(auth.hash_password, str(data.get("new", "")))
+        auth.save_password(store, stored)
         return JSONResponse({"password": True})
 
     mcp.custom_route("/api/logout", methods=["POST"])(guarded(logout))
-    mcp.custom_route("/api/password", methods=["POST"])(guarded(password))
+    mcp.custom_route("/api/password", methods=["POST"])(guarded(password, admin=True))
 
     @mcp.custom_route("/pair", methods=["POST"])
     async def pair(request):
-        got = pairing.pair(store, await body_code(request))
+        got = auth.pair(store, await body_code(request))
         if not got:
             return err("unknown, used or expired pairing code", 401)
         return JSONResponse({"name": got[0], "token": got[1],

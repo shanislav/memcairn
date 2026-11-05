@@ -37,6 +37,7 @@ from .clientsetup import (
     plugin_enabled,
 )
 
+
 def http_entry(url: str, token: str) -> dict:
     return {"type": "http", "url": f"{url}/mcp", "headers": {"Authorization": f"Bearer {token}"}}
 
@@ -88,10 +89,10 @@ def write_entry(home: Path, entry: dict, echo: Callable[[str], None]) -> None:
     echo(f"added a session-start hook that loads the memory overview ({settings})")
 
 
-
 def pair(home: Path, url: str, code: str, echo: Callable[[str], None], *,
          opener=None) -> str:
     """Trade a pairing code for a token and connect this machine: the client name."""
+    import urllib.error
     import urllib.request
 
     url = url.rstrip("/").removesuffix("/mcp")
@@ -99,16 +100,27 @@ def pair(home: Path, url: str, code: str, echo: Callable[[str], None], *,
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
         with (opener or urllib.request.urlopen)(req, timeout=15) as r:
-            got = json.loads(r.read())
-    except Exception as e:  # HTTPError 401 included
-        detail = getattr(e, "code", None)
+            body = r.read()
+    except urllib.error.HTTPError as e:
         raise RuntimeError("the server refused the code (wrong, used or older than 10 "
-                           "minutes): make a new one with Add machine" if detail == 401
-                           else f"cannot reach {url}: {e}") from e
-    name, token = got["name"], got["token"]
-    client.write_client(url, token, home / ".memcairn" / "client.toml")
-    echo(f"paired as '{name}'; server and token saved to {home / '.memcairn' / 'client.toml'}")
-    write_entry(home, http_entry(url, token), echo)
+                           "minutes): make a new one with Add machine" if e.code == 401
+                           else f"{url} answered HTTP {e.code}") from e
+    except OSError as e:  # DNS, refused, timeout, TLS
+        raise RuntimeError(f"cannot reach {url}: {e}") from e
+    try:
+        got = json.loads(body)
+        name, token = got["name"], got["token"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise RuntimeError(f"{url} gave an unexpected answer: is it a Memcairn server? "
+                           "(a proxy or login page in between?)") from e
+    toml = home / ".memcairn" / "client.toml"
+    client.write_client(url, token, toml)  # first: from here on `memcairn connect` can finish
+    echo(f"paired as '{name}'; server and token saved to {toml}")
+    try:
+        write_entry(home, http_entry(url, token), echo)
+    except OSError as e:
+        raise RuntimeError(f"paired, but writing the Claude Code configuration failed ({e}); "
+                           "fix that and run: memcairn connect") from e
     echo("Restart Claude Code (or start a new session) to load the memory.")
     return name
 

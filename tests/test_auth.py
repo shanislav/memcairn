@@ -5,7 +5,7 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
-from memcairn import clientsetup, pairing
+from memcairn import auth as pairing, clientsetup
 from memcairn.connect import connect_local, pair
 from memcairn.db import connect
 from memcairn.server import build, hash_token
@@ -27,6 +27,13 @@ def http(tmp_path):
         yield client
 
 
+def browser(http) -> dict:
+    """Headers of a web UI session (what admin actions need)."""
+    token = http.post("/api/login", json={"code": pairing.create(http.store, "login")}
+                      ).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_login_link_is_single_use_and_gives_a_working_session(http):
     code = pairing.create(http.store, "login", by="cli")
     assert len(code) == 9 and code[4] == "-"
@@ -37,7 +44,7 @@ def test_login_link_is_single_use_and_gives_a_working_session(http):
     s = {"Authorization": f"Bearer {token}"}
     assert http.get("/api/stats", headers=s).json()["client"] == "web-ui"
     # revoking web-ui logs out every browser; a new link brings it back
-    http.post("/api/client/web-ui/revoke", json={"confirm": "web-ui"}, headers=H)
+    http.post("/api/client/web-ui/revoke", json={"confirm": "web-ui"}, headers=s)
     assert http.get("/api/stats", headers=s).status_code == 401
     t2 = http.post("/api/login", json={"code": pairing.create(http.store, "login")}).json()
     assert http.get("/api/stats", headers={"Authorization": f"Bearer {t2['token']}"}
@@ -53,9 +60,11 @@ def test_codes_expire(http):
 
 
 def test_add_machine_code_becomes_a_client_token_once(http):
-    assert http.post("/api/pair", json={"name": "bad name!"}, headers=H).status_code == 400
+    B = browser(http)
+    assert http.post("/api/pair", json={"name": "bad name!"}, headers=B).status_code == 400
+    assert http.post("/api/pair", json={"name": "web-ui"}, headers=B).status_code == 400
     assert http.post("/api/pair", json={"name": "laptop"}).status_code == 401
-    r = http.post("/api/pair", json={"name": "laptop"}, headers=H).json()
+    r = http.post("/api/pair", json={"name": "laptop"}, headers=B).json()
     assert r["command"] == f"memcairn pair https://mem.example {r['code']}"
     got = http.post("/pair", json={"code": r["code"]}).json()
     assert got["name"] == "laptop" and got["url"] == "https://mem.example"
@@ -63,7 +72,7 @@ def test_add_machine_code_becomes_a_client_token_once(http):
     assert http.get("/api/stats", headers={"Authorization": f"Bearer {got['token']}"}
                     ).json()["client"] == "laptop"
     # a second machine with the same name gets its own client
-    r2 = http.post("/api/pair", json={"name": "laptop"}, headers=H).json()
+    r2 = http.post("/api/pair", json={"name": "laptop"}, headers=B).json()
     assert http.post("/pair", json={"code": r2["code"]}).json()["name"] == "laptop-2"
     assert pairing.session_client(http.store, got["token"]) is None  # not a session token
 
@@ -217,3 +226,46 @@ def test_pair_next_to_the_plugin_writes_the_entry_but_no_second_hook(tmp_path):
     assert json.loads((home / ".claude.json").read_text())["mcpServers"]["memory"]["url"] \
         == "https://mem.example/mcp"  # wins over the plugin and a claude.ai connector
     assert "hooks" not in json.loads((home / ".claude" / "settings.json").read_text())
+
+
+def test_machine_tokens_cannot_use_admin_actions(http):
+    """A leaked machine or connector token can't mint a replacement or cut others off."""
+    mid = http.store.remember("keep me")[0]["id"]
+    for path, body in (("/api/pair", {"name": "spare"}),
+                       ("/api/client/web-ui/revoke", {"confirm": "web-ui"}),
+                       (f"/api/memory/{mid}/delete", {"confirm": f"m{mid}"}),
+                       ("/api/password", {"new": "taken over now"})):
+        assert http.post(path, json=body, headers=H).status_code == 403, path
+    assert http.get("/api/stats", headers=H).status_code == 200  # reading still works
+
+
+def test_password_reset_without_the_old_one_only_right_after_a_login_link(http):
+    pairing.set_password(http.store, "the first password")
+    B = browser(http)
+    assert http.post("/api/password", json={"new": "a new password"}, headers=B
+                     ).status_code == 200  # fresh from the link: the way back in
+    with http.store.lock:  # the same session 20 minutes later
+        http.store.conn.execute("UPDATE oauth_token SET resource = ? WHERE client_id = "
+                                "'web-ui' AND revoked_at IS NULL",
+                                (f"web:link:{int(time.time()) - 1200}",))
+    assert http.post("/api/password", json={"new": "taken over now"}, headers=B
+                     ).status_code == 401
+    assert pairing.check_password(http.store, "a new password")
+
+
+def test_pair_explains_failures(tmp_path):
+    import urllib.error
+
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+
+    def html_page(req, timeout):
+        return _Resp(b"<html>login</html>")
+
+    def refused(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
+
+    for opener, words in ((html_page, "unexpected answer"), (refused, "refused the code")):
+        with pytest.raises(RuntimeError, match=words):
+            pair(home, "https://mem.example", "K7QM-42XD", lambda s: None, opener=opener)
+    assert not (home / ".memcairn" / "client.toml").exists()

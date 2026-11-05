@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import os
 import re
 import time
@@ -16,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp_types import ToolAnnotations
 
 from . import __version__, docs, format
-from .db import now
+from .db import hash_token  # noqa: F401  (re-exported for tests and tools)
 from .store import Conflict, NotFound, Store
 import contextlib
 
@@ -69,10 +68,6 @@ WRITE = ToolAnnotations(destructiveHint=False)
 DESTRUCTIVE = ToolAnnotations(destructiveHint=True)
 
 
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
 class StoreTokenVerifier:
     """Static per-client bearer tokens stored (hashed) in the database."""
 
@@ -80,16 +75,10 @@ class StoreTokenVerifier:
         self.store = store
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        row = self.store.conn.execute(
-            "SELECT name FROM client WHERE token_hash = ? AND revoked_at IS NULL",
-            (hash_token(token),),
-        ).fetchone()
-        if not row:
-            return None
-        with self.store.lock:
-            self.store.conn.execute(
-                "UPDATE client SET last_seen_at = ? WHERE name = ?", (now(), row["name"]))
-        return AccessToken(token=token, client_id=row["name"], scopes=[])
+        from .auth import static_client
+
+        name = static_client(self.store, token)
+        return AccessToken(token=token, client_id=name, scopes=[]) if name else None
 
 
 def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
@@ -275,16 +264,9 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         token = header[7:] if header.lower().startswith("bearer ") else ""
         if not token:
             return False, None
-        tok = await (provider.load_access_token(token) if provider
-                     else StoreTokenVerifier(store).verify_token(token))
-        from .pairing import WEB_CLIENT, session_client  # web UI sessions
+        from .auth import client_for  # static token, browser session or OAuth access token
 
-        if tok:
-            if tok.client_id == WEB_CLIENT:  # renews it (30 days from the last use)
-                session_client(store, token)
-            return True, tok.subject or tok.client_id
-
-        name = session_client(store, token)
+        name = client_for(store, token)
         return (name is not None), name
 
     if provider:

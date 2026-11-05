@@ -124,7 +124,11 @@ database.
 - **Web UI**: one password (one person, no accounts), stored as a scrypt hash, five wrong
   tries block it for 15 minutes. Sessions last 30 days from the last use; signing out
   ends one. `memcairn login-link` (a one-time link, from the server) is the first login and
-  the way back in after a forgotten password; `memcairn ui` locally logs in by itself.
+  the way back in after a forgotten password (for 15 minutes such a session may set a new
+  password without the old one); `memcairn ui` locally logs in by itself.
+- **Admin actions** (add machine, revoke, permanent delete, password) need a browser
+  session. A machine's or connector's token reads and writes memory, but can't mint a
+  replacement token or cut off others.
 - **OAuth 2.1** for claude.ai and the Claude apps, whose connectors can't send a fixed
   header: dynamic client registration, PKCE, 24-hour access tokens, 90-day refresh tokens
   rotated on every use. The approval page takes a pairing code; the connection then acts
@@ -145,7 +149,7 @@ database.
 | `server.py` | MCP tools, instructions, HTTP routes (`/context`, `/docs`) |
 | `docs.py`, `chunks.py`, `sync.py` | shared documents, their search parts, file sync with three-way merge |
 | `webapi.py`, `ui.html`, `manage.py` | web UI and its API |
-| `oauth.py`, `pairing.py` | OAuth provider; one-time codes |
+| `auth.py`, `oauth.py` | clients, pairing codes, web UI password and sessions; OAuth provider |
 | `connect.py`, `clientsetup.py`, `client.py` | connecting Claude Code (`pair`, `connect`, `setup`, `unsetup`) |
 | `importers.py`, `review.py`, `purge.py`, `doctor.py`, `chronicle.py` | import/export, cleanup, purge, checks, topic history |
 | `vectors.py`, `temporal.py`, `secretscan.py`, `format.py` | embeddings, time words, secret scan, output formatting |

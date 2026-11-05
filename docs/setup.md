@@ -345,8 +345,9 @@ server, which keeps no timestamps) gave none, so the import uses the oldest reco
 by which the fact existed at the latest.
 
 Edits are versioned and recorded as the logged-in client (`web-ui` after a login link).
-Revoking `web-ui` logs out every browser. The page itself holds no data. It works on a
-phone too.
+Revoking `web-ui` logs out every browser. Adding machines, revoking, deleting
+permanently and the password work only when logged in with the password or a login
+link, not with a machine's token. The page itself holds no data. It works on a phone too.
 
 `memcairn chronicle "Edge3"` prints everything memory knows about a topic in date
 order as markdown: facts, decisions and open todos, plus the earlier versions that cleanup

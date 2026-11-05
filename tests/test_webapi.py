@@ -24,6 +24,15 @@ def http(tmp_path):
         yield client
 
 
+def browser(http) -> dict:
+    """Headers of a web UI session (what admin actions need)."""
+    from memcairn import auth
+
+    token = http.post("/api/login", json={"code": auth.create(http.store, "login")}
+                      ).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_ui_page_is_static_and_api_needs_a_token(http):
     page = http.get("/ui")
     assert page.status_code == 200 and "<title>Memcairn</title>" in page.text
@@ -77,9 +86,9 @@ def test_permanent_delete_takes_the_history_and_needs_confirmation(http):
     store = http.store
     old, _ = store.remember("plex on port 32400", entity="Plex")
     new = store.update(old["id"], content="plex behind nginx on 443", supersede=True)
-    url = f"/api/memory/{new['id']}/delete"
-    assert http.post(url, headers=H, json={}).status_code == 400  # no confirmation
-    assert http.post(url, headers=H, json={"confirm": f"m{new['id']}"}).json()["deleted"] == 2
+    url, B = f"/api/memory/{new['id']}/delete", browser(http)
+    assert http.post(url, headers=B, json={}).status_code == 400  # no confirmation
+    assert http.post(url, headers=B, json={"confirm": f"m{new['id']}"}).json()["deleted"] == 2
     for t, col in (("memory", "id"), ("memory_history", "memory_id")):
         assert not store.conn.execute(f"SELECT 1 FROM {t} WHERE {col} IN (?, ?)",
                                       (old["id"], new["id"])).fetchone()
@@ -117,16 +126,16 @@ def test_revoke_a_client_needs_its_name_and_cuts_it_off(http):
     with http.store.lock:
         http.store.conn.execute("INSERT INTO client (name, token_hash, created_at) VALUES "
                                 "('laptop', ?, '2026-01-01T00:00:00Z')", (hash_token("mcn_lap"),))
-    lap = {"Authorization": "Bearer mcn_lap"}
+    lap, B = {"Authorization": "Bearer mcn_lap"}, browser(http)
     assert http.get("/api/stats", headers=lap).status_code == 200
-    assert http.post("/api/client/laptop/revoke", json={}, headers=H).status_code == 400
-    r = http.post("/api/client/laptop/revoke", json={"confirm": "laptop"}, headers=H).json()
+    assert http.post("/api/client/laptop/revoke", json={}, headers=B).status_code == 400
+    r = http.post("/api/client/laptop/revoke", json={"confirm": "laptop"}, headers=B).json()
     assert r == {"revoked": "laptop", "self": False}
     assert http.get("/api/stats", headers=lap).status_code == 401
     assert http.post("/api/client/laptop/revoke", json={"confirm": "laptop"},
-                     headers=H).status_code == 404
+                     headers=B).status_code == 404
     names = [c["name"] for c in http.get("/api/overview", headers=H).json()["clients"]]
     assert "laptop" not in names
-    assert http.post("/api/client/browser/revoke", json={"confirm": "browser"},
-                     headers=H).json()["self"] is True
-    assert http.get("/api/stats", headers=H).status_code == 401
+    assert http.post("/api/client/web-ui/revoke", json={"confirm": "web-ui"},
+                     headers=B).json()["self"] is True
+    assert http.get("/api/stats", headers=B).status_code == 401

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -226,6 +227,11 @@ MIGRATIONS: list[str] = [
     );
     """,
 ]
+
+
+def hash_token(token: str) -> str:
+    """How tokens, codes and session keys are stored: never in clear."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def now() -> str:
