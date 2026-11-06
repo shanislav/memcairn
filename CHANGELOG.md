@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Only you pin.** Pinned facts reach every session on every machine, so an agent can
+  only ask: `pinned=true` from an agent (or a machine token) stores the fact unpinned and
+  adds a pin request, and changing the text of a pinned fact unpins it until approved
+  again. Approve or reject requests at the top of the web UI overview; the session
+  overview shows only how many wait.
+
 ## 0.1.2 — 2026-11-06
 
 - The Docker image installs the exact dependency versions from `uv.lock`: a build of a

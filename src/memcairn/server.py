@@ -194,8 +194,8 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         row, dups = store.remember(
             content, type=type, entity=entity, tags=tags, importance=importance, pinned=pinned,
             expires_at=expires_at, idempotency_key=idempotency_key,
-            scope=default_scope(scope), client=client())
-        return format.written(row, dups)
+            scope=default_scope(scope), client=client(), agent=True)
+        return format.written(row, dups, pin_asked=pinned and not row["pinned"])
 
     @mcp.tool(structured_output=False, annotations=WRITE)
     @safe
@@ -216,8 +216,9 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         row = store.update(
             id, content=content, supersede=supersede, expected_version=expected_version,
             type=type, entity=entity, tags=tags, importance=importance, pinned=pinned,
-            expires_at=expires_at, status=status, client=client())
-        return format.written(row, [], verb="superseded, new" if supersede else "ok")
+            expires_at=expires_at, status=status, client=client(), agent=True)
+        return format.written(row, [], verb="superseded, new" if supersede else "ok",
+                              pin_asked=store.pin_requested(row["id"]))
 
     @mcp.tool(structured_output=False, annotations=DESTRUCTIVE)
     @safe

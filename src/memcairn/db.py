@@ -226,6 +226,14 @@ MIGRATIONS: list[str] = [
         value TEXT NOT NULL
     );
     """,
+    # 10 — pins an agent asked for; the user approves them in the web UI
+    """
+    CREATE TABLE pin_request (
+        memory_id    INTEGER PRIMARY KEY REFERENCES memory(id) ON DELETE CASCADE,
+        client       TEXT,
+        requested_at TEXT NOT NULL
+    );
+    """,
 ]
 
 

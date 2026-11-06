@@ -110,4 +110,7 @@ def overview(store: Store) -> dict:
     return {"stats": store.stats(), "types": types, "top_entities": top, "activity": days,
             "clients": clients, "open_todos": open_todos, "todos": todos, "recent": recent,
             "pinned": pinned,
+            "pin_requests": [{k: r[k] for k in ("id", "type", "content", "entity_name",
+                                                "requested_by", "requested_at")}
+                             for r in store.pin_requests()],
             "usage": usage, "documents": {"count": docs[0], "chars": docs[1]}}

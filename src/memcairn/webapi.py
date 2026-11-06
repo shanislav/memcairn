@@ -36,6 +36,10 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         h = request.headers.get("authorization", "")
         return h[7:] if h.lower().startswith("bearer ") else ""
 
+    def is_user(request) -> bool:
+        """A browser session (or no auth at all): the person, not a machine's token."""
+        return not public_url or auth.session_info(store, bearer(request)) is not None
+
     def guarded(fn, *, admin: bool = False):
         """Any valid token; with admin=True only a browser session (or no auth at all), so a
         machine's or connector's token can't mint new tokens or cut off others."""
@@ -43,7 +47,7 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
             ok, name = await authorize(request)
             if not ok:
                 return err("unauthorized", 401)
-            if admin and public_url and not auth.session_info(store, bearer(request)):
+            if admin and not is_user(request):
                 return err("only from the web UI (log in with your password)", 403)
             try:
                 return await fn(request, name)
@@ -117,7 +121,16 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
         allowed = {k: body[k] for k in ("content", "type", "entity", "status", "pinned",
                                         "importance", "supersede", "expected_version")
                    if k in body}
-        row = store.update(mid, client=name, **allowed)
+        row = store.update(mid, client=name, agent=not is_user(request), **allowed)
+        return JSONResponse({"memory": _mem(row), "pin_requested": store.pin_requested(row["id"])})
+
+    async def pin_requests(request, name):
+        return JSONResponse([_mem(r) for r in store.pin_requests()])
+
+    async def decide_pin(request, name):
+        body = await request.json() if await request.body() else {}
+        row = store.decide_pin(int(request.path_params["id"]), bool(body.get("approve")),
+                               client=name)
         return JSONResponse({"memory": _mem(row)})
 
     async def forget(request, name):
@@ -190,9 +203,10 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
               ("/api/memory/{id:int}", memory, ["GET", "POST"]),
               ("/api/memory/{id:int}/forget", forget, ["POST"]),
               ("/api/entity/rename", rename, ["POST"]), ("/api/overview", overview, ["GET"]),
-              ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"])]
+              ("/api/docs", documents, ["GET"]), ("/api/review", review_items, ["GET"]),
+              ("/api/pins", pin_requests, ["GET"])]
     admin_routes = [("/api/memory/{id:int}/delete", delete), ("/api/client/{name}/revoke", revoke),
-                    ("/api/pair", pair_code)]
+                    ("/api/pair", pair_code), ("/api/memory/{id:int}/pin", decide_pin)]
     for path, fn, methods in routes:
         mcp.custom_route(path, methods=methods)(guarded(fn))
     for path, fn in admin_routes:

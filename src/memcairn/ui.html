@@ -293,7 +293,11 @@ async function loadOverview() {
   const maxType = Math.max(1, ...Object.values(o.types)), maxEnt = Math.max(1, ...o.top_entities.map(e => e.facts));
   const u = o.usage, recall = u.recall || {}, hook = u["session-hook"] || {};
   const calls = Object.values(u).reduce((a, x) => a + x.calls, 0);
-  $("#overview").innerHTML = (!hasPassword && me === "web-ui" ? `<div class="panel" style="margin-bottom:12px;border-color:var(--accent)"><b>Set a password</b> so you can log in here again without the server. <button class="act" data-setpw="1">Set password</button></div>` : "") + `
+  const asks = o.pin_requests || [];
+  $("#overview").innerHTML = (!hasPassword && me === "web-ui" ? `<div class="panel" style="margin-bottom:12px;border-color:var(--accent)"><b>Set a password</b> so you can log in here again without the server. <button class="act" data-setpw="1">Set password</button></div>` : "") +
+  (asks.length ? `<div class="panel" style="margin-bottom:12px;border-color:var(--accent)"><h3>Pin requests: approve only what you asked for</h3>
+    <p class="meta" style="margin:0 0 6px">An agent asked to pin these, or changed the text of a pinned fact. A pinned fact is sent to every session on every machine, so a pin you did not ask for (for example one a web page talked an agent into) could steer all of them. Rejecting keeps the fact, unpinned.</p>
+    ${asks.map(p => `<div class="mini" style="align-items:flex-start"><span class="t" style="white-space:normal" data-id="${p.id}">${esc(p.content)}</span><span class="meta">${esc(p.requested_by || "?")} · ${ago(p.requested_at)}</span><button class="linkish" data-pinok="${p.id}">approve</button><button class="linkish" data-pinno="${p.id}">reject</button></div>`).join("")}</div>` : "") + `
   <div class="cards">
     <div class="card click" data-go="memory"><div class="n">${st.memories}</div><div class="l">facts</div></div>
     <div class="card"><div class="n">${st.entities}</div><div class="l">entities</div></div>
@@ -326,7 +330,7 @@ async function loadOverview() {
 }
 
 $("#overview").onclick = async e => {
-  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-addmachine],[data-setpw],[data-unpin],[data-done],[data-drop],[data-id]"); if (!t) return;
+  const t = e.target.closest("[data-go],[data-ent],[data-rename],[data-revoke],[data-addmachine],[data-setpw],[data-unpin],[data-pinok],[data-pinno],[data-done],[data-drop],[data-id]"); if (!t) return;
   const d = t.dataset;
   try {
     if (d.go === "memory") { showTab("memory"); search(); }
@@ -340,6 +344,10 @@ $("#overview").onclick = async e => {
     else if (d.setpw) passwordPanel(true);
     else if (d.done || d.drop) { await setStatus(+(d.done || d.drop), d.done ? "done" : "dropped"); loadOverview(); }
     else if (d.unpin) { await setPinned(+d.unpin, false); loadOverview(); }
+    else if (d.pinok || d.pinno) {
+      await api(`/api/memory/${d.pinok || d.pinno}/pin`, { method: "POST", body: JSON.stringify({ approve: !!d.pinok }) });
+      loadOverview();
+    }
     else if (d.id) openMemory(+d.id);
   } catch (err) { alert(err.message); }
 };

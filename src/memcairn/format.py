@@ -150,6 +150,9 @@ def brief_overview(store, scope: str | None = None, *, max_tokens: int = 400) ->
     tail = [hit_line(h, limit=420) for h in pinned]
     if todos:
         tail.append(f"{todos} open todos (recall with type=todo)")
+    asked = len(store.pin_requests())
+    if asked:  # a count only: the text is not approved yet
+        tail.append(f"{asked} pin request(s) wait for the user's approval in the web UI")
     room = max_tokens - sum(tokens(x) + 1 for x in head + tail)
 
     def listing(label: str, names: list[str], room: int) -> tuple[str, int]:
@@ -234,8 +237,15 @@ class _StatusLike:
 STATUS_LIKE = _StatusLike()
 
 
-def written(row: sqlite3.Row, dups: list[sqlite3.Row], *, verb: str = "ok") -> str:
+PIN_ASKED = ("pin requested: the user approves it in the web UI (Pinned), so tell them; "
+             "until then it is found by recall but not shown at session start")
+
+
+def written(row: sqlite3.Row, dups: list[sqlite3.Row], *, verb: str = "ok",
+            pin_asked: bool = False) -> str:
     text = f"{verb} m{row['id']} v{row['version']}"
+    if pin_asked:
+        text += f"\n{PIN_ASKED}"
     content = row["content"]
     if len(content) > 500:
         text += " — long; prefer short atomic facts (split it?)"

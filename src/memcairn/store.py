@@ -422,7 +422,9 @@ class Store:
         episode_id: int | None = None,
         recorded_at: str | None = None,
         check_duplicates: bool = True,
+        agent: bool = False,
     ) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
+        """agent=True: a pin becomes a request the user approves (see pin_requests)."""
         content = content.strip()
         if not content:
             raise ValueError("content is empty")
@@ -449,7 +451,7 @@ class Store:
                     content,
                     json.dumps(tags or [], ensure_ascii=False),
                     0.5 if importance is None else max(0.0, min(1.0, importance)),
-                    int(bool(pinned)),
+                    int(bool(pinned) and not agent),
                     valid_from,
                     recorded_at or t,
                     recorded_at or t,
@@ -463,6 +465,8 @@ class Store:
             mid = cur.lastrowid
             self._index(mid)
             self._snapshot(mid, "create", client)
+            if pinned and agent:
+                self._request_pin(mid, client)
             dups = self.near_duplicates(mid) if check_duplicates else []
         # after COMMIT: the new memory's vector exists now (embedded on commit)
         if check_duplicates:
@@ -529,7 +533,11 @@ class Store:
         expires_at: str | None = None,
         status: str | None = None,
         client: str | None = None,
+        agent: bool = False,
     ) -> sqlite3.Row:
+        """agent=True: pinning becomes a request the user approves, and changing what a
+        pinned fact says unpins it until approved again (pinned text reaches every session
+        on every machine, so only the user puts it there)."""
         mid = parse_id(ref)
         if status is not None and status not in TODO_STATES:
             raise ValueError(f"status must be one of {', '.join(TODO_STATES)}")
@@ -562,6 +570,13 @@ class Store:
             if status is not None and new_type != "todo":
                 raise ValueError("status applies to todos only")
             fields["status"] = (status or old["status"] or "open") if new_type == "todo" else None
+            ask_pin = False
+            if agent and pinned is not False:
+                changed = supersede or fields["content"] != old["content"]
+                ask_pin = (bool(pinned) and not old["pinned"]) or (old["pinned"] and changed)
+                fields["pinned"] = 0 if ask_pin else old["pinned"]
+            if pinned is not None:  # decided now (or re-asked below): drop an older request
+                self.conn.execute("DELETE FROM pin_request WHERE memory_id = ?", (mid,))
             t = now()
             if supersede:
                 cur = self.conn.execute(
@@ -584,6 +599,8 @@ class Store:
                 self._index(mid)
                 self._snapshot(mid, "superseded", client)
                 self._snapshot(new_id, "create", client)
+                if ask_pin:
+                    self._request_pin(new_id, client)
                 return self._row(new_id)
             sets = ", ".join(f"{k} = ?" for k in fields)
             self.conn.execute(
@@ -592,7 +609,39 @@ class Store:
             )
             self._index(mid)
             self._snapshot(mid, "update", client)
+            if ask_pin:
+                self._request_pin(mid, client)
             return self._row(mid)
+
+    # ---------- pin requests ----------
+
+    def _request_pin(self, mid: int, client: str | None) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO pin_request (memory_id, client, requested_at)"
+                          " VALUES (?, ?, ?)", (mid, client, now()))
+
+    def pin_requested(self, mid: int) -> bool:
+        return self.conn.execute("SELECT 1 FROM pin_request WHERE memory_id = ?",
+                                 (mid,)).fetchone() is not None
+
+    def pin_requests(self) -> list[sqlite3.Row]:
+        """Live memories an agent asked to pin, oldest request first."""
+        return self.conn.execute(
+            """SELECT m.*, e.name AS entity_name, p.client AS requested_by, p.requested_at
+               FROM pin_request p JOIN memory m ON m.id = p.memory_id
+               LEFT JOIN entity e ON e.id = m.entity_id
+               WHERE m.deleted_at IS NULL AND m.superseded_by IS NULL
+               ORDER BY p.requested_at, m.id""").fetchall()
+
+    def decide_pin(self, ref: str | int, approve: bool, client: str | None = None) -> sqlite3.Row:
+        """The user's answer to a pin request: pin the memory, or just drop the request."""
+        mid = parse_id(ref)
+        if not self.pin_requested(mid):
+            raise NotFound(f"no pin request for m{mid}")
+        if approve:
+            return self.update(mid, pinned=True, client=client)
+        with self._tx():
+            self.conn.execute("DELETE FROM pin_request WHERE memory_id = ?", (mid,))
+        return self._row(mid)
 
     def forget(self, ref: str | int, *, reason: str | None = None, undo: bool = False,
                client: str | None = None) -> sqlite3.Row:

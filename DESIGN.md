@@ -94,6 +94,14 @@ results slightly worse: semantic search always finds *something*.
 `mode=full` it also ranks the remaining facts by type (feedback and preferences before
 plain facts), importance and use, at most two per entity, and lists five open todos.
 
+**Pins are the user's.** Pinned text is injected into every session on every machine,
+which makes it the one place where a prompt injection (an agent talked into
+"remembering" an instruction) would spread. So MCP tools and machine tokens can only ask:
+the fact is stored unpinned plus a `pin_request` row, and changing the text of a pinned
+fact unpins it until approved again. A browser session (or a server without auth)
+approves or rejects in the web UI; the overview shows only the count of waiting requests,
+never their text.
+
 ## Writes
 
 - `remember` stores one fact and returns `ok m<id>`, plus up to three possible duplicates

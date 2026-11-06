@@ -283,9 +283,14 @@ the session starts normally.
 What goes in (~200 tokens plus your pinned facts):
 1. how much memory holds, and the names of the biggest topics and the shared documents
    (capped, "+N more"): this is what makes the agent recall when a topic comes up;
-2. pinned facts in full (`remember(..., pinned=true)` or `update(id, pinned=true)`), for
-   rules that must apply in every session; keep them few;
-3. the number of open todos.
+2. pinned facts in full, for rules that must apply in every session; keep them few;
+3. the number of open todos (and of pin requests waiting for you).
+
+Only you pin. Pinned text reaches every session on every machine, so an agent that was
+talked into "remembering" something (by a web page, a log, a file) must not be able to
+put it there. When an agent asks for a pin (`pinned=true`), or changes the text of a
+pinned fact, the fact is stored unpinned and the request waits at the top of the web UI
+overview: approve or reject it there. Unpinning needs no approval.
 
 `?mode=full` (or `memcairn context --full`) also lists five open todos and the best
 other facts, ranked by type (feedback and preferences first), importance and use, at most
@@ -332,8 +337,8 @@ page already logged in.
   are and how much is waiting for cleanup; changes over the last 14 days; how agents use
   memory (calls, tokens per recall, empty results, sessions started); which machines
   connected when and how much they wrote, with **+ add machine** (pairing code) and
-  **revoke**; types; the biggest topics; **pinned facts** (sent in full in every
-  session) with unpin; open todos with done/drop buttons; what changed last.
+  **revoke**; types; the biggest topics; **pin requests** from agents (approve or
+  reject); **pinned facts** (sent in full in every session) with unpin; open todos with done/drop buttons; what changed last.
 - **Memory**: search like the agents do (including deep mode and time words), filter by
   type, entity and todo status. A fact opens with its version history and the facts it
   replaced: edit it, save the change as a new version when it changed in reality, mark a
