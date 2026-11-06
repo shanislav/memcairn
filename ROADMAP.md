@@ -55,5 +55,5 @@ solid.
 - **A hosted service.** Memcairn is meant to run on your own machine or server.
 - **An external database or vector store.** One SQLite file is enough for one person's
   memory: with 50,000 synthetic facts (on a laptop, Intel Core i7-12700H) the file is
-  135 MB, a write takes ~2 ms and a
-  recall ~120 ms (deep ~140 ms). It stays the default for teams too.
+  135 MB, a write takes ~2 ms and a recall ~120 ms (deep ~140 ms). It stays the default
+  for teams too.
