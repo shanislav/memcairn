@@ -13,7 +13,7 @@ import sqlite3
 
 from . import secretscan
 from .db import now
-from .store import Conflict, NotFound, Store
+from .store import Conflict, NotFound, Store, split_unspaced
 
 NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 MAX_BYTES = 1_000_000
@@ -115,7 +115,7 @@ def index_doc(store: Store, name: str) -> dict[str, int]:
                 stats["added"] += 1
             store.conn.execute(
                 "INSERT INTO doc_chunk_fts (rowid, content, path, doc) VALUES (?,?,?,?)",
-                (cid, c.content, c.path, name.replace("_", " ")))
+                (cid, split_unspaced(c.content), split_unspaced(c.path), name.replace("_", " ")))
         for r in old.values():
             store.conn.execute("DELETE FROM doc_chunk WHERE id = ?", (r["id"],))
             store.conn.execute("DELETE FROM doc_chunk_fts WHERE rowid = ?", (r["id"],))

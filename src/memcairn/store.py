@@ -107,9 +107,16 @@ SIM_CEIL = 0.75
 
 
 def fold(text: str) -> str:
-    """Lowercase and strip diacritics."""
+    """Lowercase and strip diacritics, as the FTS tokenizer does: marks on Latin, Greek or
+    Cyrillic letters go (é -> e), while marks that are part of a letter in scripts without
+    spaces stay (Japanese ど is not と, Thai vowels are letters)."""
     nfkd = unicodedata.normalize("NFKD", text.lower())
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
+    out: list[str] = []
+    for c in nfkd:
+        if unicodedata.combining(c) and not (out and UNSPACED.match(out[-1])):
+            continue
+        out.append(c)
+    return unicodedata.normalize("NFC", "".join(out))
 
 
 # Function words that carry no topic (sk/cs/en); dropped from queries, not from stored text.
@@ -172,10 +179,25 @@ def query_terms(text: str) -> list[str]:
     return content or all_terms
 
 
+# Scripts written without spaces between words: Thai, Japanese kana, CJK ideographs, Hangul.
+UNSPACED = re.compile(r"[฀-๿぀-ヿ㐀-䶿一-鿿가-힯"
+                      r"豈-﫿]+")
+
+
+def split_unspaced(text: str) -> str:
+    """'报销系统' -> ' 报销 销系 系统 ': in scripts without spaces, overlapping character
+    pairs stand in for words. Applied to indexed text and queries alike, so full-text search
+    and term coverage work there too."""
+    def pairs(m: re.Match) -> str:
+        s = m.group(0)
+        return " " + (s if len(s) == 1 else " ".join(s[i:i + 2] for i in range(len(s) - 1))) + " "
+    return UNSPACED.sub(pairs, text)
+
+
 def terms(text: str, limit: int = 16) -> list[str]:
     seen: list[str] = []
-    for t in re.findall(r"\w+", fold(text)):
-        if len(t) >= 2 and t not in seen:
+    for t in re.findall(r"\w+", split_unspaced(fold(text))):
+        if (len(t) >= 2 or UNSPACED.match(t)) and t not in seen:
             seen.append(t)
     return seen[:limit]
 
@@ -232,6 +254,26 @@ class Store:
                 """SELECT v.memory_id, v.vec FROM memory_vec v JOIN memory m
                    ON m.id = v.memory_id WHERE v.model = ? AND m.deleted_at IS NULL""",
                 (embedder.model,)).fetchall())
+        self._split_unspaced_once()
+
+    def _split_unspaced_once(self) -> None:
+        """Databases from before 0.2 indexed Chinese, Japanese, Thai… text as one word per
+        run of characters; re-index those entries once with character pairs."""
+        if self.conn.execute("SELECT 1 FROM setting WHERE key = 'index_unspaced'").fetchone():
+            return
+        with self._tx():
+            for r in self.conn.execute("SELECT id, content FROM memory").fetchall():
+                if UNSPACED.search(r["content"]):
+                    self._put_fts(self._row(r["id"]))
+            for c in self.conn.execute(
+                    "SELECT id, content, path, doc_name FROM doc_chunk").fetchall():
+                if UNSPACED.search(c["content"]) or UNSPACED.search(c["path"] or ""):
+                    self.conn.execute("DELETE FROM doc_chunk_fts WHERE rowid = ?", (c["id"],))
+                    self.conn.execute(
+                        "INSERT INTO doc_chunk_fts (rowid, content, path, doc) VALUES (?,?,?,?)",
+                        (c["id"], split_unspaced(c["content"]), split_unspaced(c["path"] or ""),
+                         c["doc_name"].replace("_", " ")))
+            self.conn.execute("INSERT INTO setting (key, value) VALUES ('index_unspaced', '1')")
 
     # ---------- helpers ----------
 
@@ -383,16 +425,20 @@ class Store:
         )
 
     def _index(self, mid: int) -> None:
-        row = self._row(mid)
         self._dirty.add(mid)
         self._active_days = None
-        self.conn.execute("DELETE FROM memory_fts WHERE rowid = ?", (mid,))
+        self._put_fts(self._row(mid))
+
+    def _put_fts(self, row: sqlite3.Row) -> None:
+        """(Re)write a memory's full-text entry; forgotten ones have none."""
+        self.conn.execute("DELETE FROM memory_fts WHERE rowid = ?", (row["id"],))
         if row["deleted_at"]:
             return
         tags = " ".join(json.loads(row["tags"]))
         self.conn.execute(
             "INSERT INTO memory_fts (rowid, content, tags, entity) VALUES (?,?,?,?)",
-            (mid, row["content"], tags, row["entity_name"] or ""),
+            (row["id"], split_unspaced(row["content"]), split_unspaced(tags),
+             split_unspaced(row["entity_name"] or "")),
         )
 
     def episode(self, scope: str | None, client: str | None, raw: str | None = None) -> int:
@@ -850,7 +896,8 @@ class Store:
                 for r in self.conn.execute(sql, (*args, *nearest)).fetchall():
                     rows[r["id"]] = r
 
-        hits = [self._score(r, qterms) for r in rows.values()]
+        weights = self._term_weights(qterms)
+        hits = [self._score(r, qterms, weights) for r in rows.values()]
         for h in hits:  # age by activity on the topic, not by the calendar (as in context)
             h.parts["recency"] = round(math.exp(-0.05 * self._active_age(h.memory)), 2)
         worst = max((-h.memory["rank"] for h in hits), default=0.0)
@@ -897,12 +944,13 @@ class Store:
         if not rows:
             return []
         worst = max(-r["rank"] for r in rows) or 1.0
+        weights = self._term_weights(qterms, "doc_chunk_fts")
         out = []
         for r in rows:
             words = set(terms(f"{r['content']} {r['path']} {r['doc_name']}", limit=10_000))
             stems = {stem(t) for t in words}
-            matched = sum(1 for q in qterms if covered(q, words, stems))
-            coverage = matched / len(qterms) if qterms else 0.0
+            matched = sum(weights[q] for q in qterms if covered(q, words, stems))
+            coverage = matched / sum(weights.values()) if qterms else 0.0
             bm = -r["rank"] / worst if worst > 0 else 0.0
             score = round((0.6 * coverage + 0.4 * bm) * 0.75 + 0.15 * 0.4 + 0.1 - 0.02, 3)
             if r["kind"] == "row" and qterms:
@@ -936,14 +984,34 @@ class Store:
                 best[m["id"]] = h
         return list(best.values())
 
-    def _score(self, row: sqlite3.Row, qterms: list[str]) -> Hit:
+    def _term_weights(self, qterms: list[str], table: str = "memory_fts") -> dict[str, float]:
+        """How much each query word says, from how many entries contain it (BM25's IDF):
+        in any language, words that appear everywhere ("server", a speaker's name, filler)
+        count little and rare ones ("mailgun") a lot. A word found nowhere (often just an
+        unusual inflection: "appku") counts like an average word of the query, not like the
+        rarest one: it still lowers confidence, so a query about something memory doesn't
+        hold stays low-confidence, but one odd word doesn't sink a good match."""
+        n = self.conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        idf: dict[str, float] = {}
+        for q in qterms:
+            match = " OR ".join(f'"{a}"*' for a in alternatives(q))
+            df = self.conn.execute(f"SELECT count(*) FROM {table} WHERE {table} MATCH ?",
+                                   (match,)).fetchone()[0]
+            if df:
+                idf[q] = math.log(1 + (n - df + 0.5) / (df + 0.5))
+        unseen = sum(idf.values()) / len(idf) if idf else 1.0
+        return {q: idf.get(q, unseen) for q in qterms}
+
+    def _score(self, row: sqlite3.Row, qterms: list[str],
+               weights: dict[str, float] | None = None) -> Hit:
         text_terms = set(terms(
             f"{row['content']} {row['entity_name'] or ''} {' '.join(json.loads(row['tags']))}",
             limit=10_000))
         stems = {stem(t) for t in text_terms}
         if qterms:
-            matched = sum(1 for q in qterms if covered(q, text_terms, stems))
-            coverage = matched / len(qterms)
+            w = weights or {}
+            matched = sum(w.get(q, 1.0) for q in qterms if covered(q, text_terms, stems))
+            coverage = matched / sum(w.get(q, 1.0) for q in qterms)
         else:
             coverage = 0.0
         ts = row["updated_at"] or row["recorded_at"]
