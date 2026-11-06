@@ -291,9 +291,12 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
                 return RedirectResponse(provider.deny(req), 302)
             try:
                 return RedirectResponse(provider.approve(req, form.get("token", "")), 302)
-            except ValueError:
-                return HTMLResponse(approve_page(name, host, req, "Unknown, used or expired code."),
-                                    401)
+            except ValueError as e:
+                from .auth import TooManyGuesses
+
+                too_many = isinstance(e, TooManyGuesses)
+                msg = str(e).capitalize() + "." if too_many else "Unknown, used or expired code."
+                return HTMLResponse(approve_page(name, host, req, msg), 429 if too_many else 401)
 
     from . import webapi
 

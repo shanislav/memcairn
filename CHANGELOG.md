@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — 2026-11-06
+
+- The Docker image installs the exact dependency versions from `uv.lock`: a build of a
+  given commit is reproducible.
+- `compose.yml` runs a fixed release (`MEMCAIRN_VERSION` in `.env`) instead of `latest`;
+  updating is a step you choose (back up, set the version, pull).
+- One-time codes (pairing, login links, the OAuth approval page) are limited to 20 wrong
+  attempts per 15 minutes, like passwords.
+- `pair`, `connect` and `setup` write `~/.claude.json` and `settings.json` atomically and
+  re-read them just before writing, so a running Claude Code never sees half a file and
+  its own changes are kept.
+
 ## 0.1.1 — 2026-11-05
 
 - On PyPI: `uv tool install memcairn` (add `[vector]` for search by meaning), updates with

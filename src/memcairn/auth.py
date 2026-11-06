@@ -35,6 +35,7 @@ LOGIN_TTL = 15 * 60
 PAIR_TTL = 10 * 60
 WEB_TTL = 30 * 24 * 3600  # sliding: renewed on use
 MIN_PASSWORD = 10
+CODE_GUESSES = 20  # wrong one-time codes per 15 minutes, all kinds together
 WEB_CLIENT = "web-ui"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$")
 
@@ -72,8 +73,18 @@ def create(store: Store, kind: str, name: str | None = None, *, by: str | None =
     return f"{code[:4]}-{code[4:]}"
 
 
+class TooManyGuesses(ValueError):
+    """Too many wrong codes lately; no code is accepted until the window passes."""
+
+
 def redeem(store: Store, code: str, kind: str):
-    """Spend a code: its row, or None when unknown, expired or already used."""
+    """Spend a code: its row, or None when unknown, expired or already used. Raises
+    TooManyGuesses after CODE_GUESSES wrong codes in 15 minutes (the server-side
+    `memcairn token add` still works then)."""
+    guesses = vars(store).setdefault("code_guesses", Throttle(CODE_GUESSES))
+    wait = guesses.wait()
+    if wait:
+        raise TooManyGuesses(f"too many wrong codes; try again in {wait // 60 + 1} min")
     h = hash_token(normalize(code))
     with store._tx():
         row = store.conn.execute(
@@ -81,6 +92,8 @@ def redeem(store: Store, code: str, kind: str):
             (h, kind, int(time.time()))).fetchone()
         if row:
             store.conn.execute("DELETE FROM onetime WHERE code_hash = ?", (h,))
+    if not row:
+        guesses.failed()
     return row
 
 

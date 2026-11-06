@@ -1,9 +1,15 @@
 FROM python:3.13-slim
 
+# Dependencies come from uv.lock, so every build of a commit installs the same versions.
+COPY --from=ghcr.io/astral-sh/uv:0.11.0 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
+    PATH="/app/.venv/bin:$PATH"
+
 WORKDIR /app
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
+RUN uv sync --frozen --no-cache --no-install-project --extra vector
 COPY src ./src
-RUN pip install --no-cache-dir ".[vector]" \
+RUN uv sync --frozen --no-cache --no-editable --extra vector \
     && useradd --system --create-home --uid 10001 memcairn \
     && mkdir /data && chown memcairn /data
 

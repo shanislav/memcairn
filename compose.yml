@@ -3,10 +3,12 @@
 #   mkdir -p data && sudo chown 10001 data
 #   docker compose up -d
 #   docker compose exec memcairn memcairn login-link     # web UI, then "Add machine"
-# Update: docker compose pull && docker compose up -d
+# Update: back up (docker compose exec memcairn memcairn backup /data/pre-update.db), set
+#   MEMCAIRN_VERSION=X.Y.Z in .env (releases: CHANGELOG.md), docker compose pull && docker compose up -d
 services:
   memcairn:
-    image: ghcr.io/shanislav/memcairn:latest   # or build it from a clone: `build: .`
+    # A fixed release, not :latest: an update is a step you choose. Or build from a clone: `build: .`
+    image: ghcr.io/shanislav/memcairn:${MEMCAIRN_VERSION:-0.1.2}
     restart: unless-stopped
     stop_grace_period: 30s
     environment:  # set these in .env next to this file

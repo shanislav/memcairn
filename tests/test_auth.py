@@ -201,6 +201,15 @@ def test_wrong_passwords_are_throttled(http):
     assert http.post("/api/login", json={"code": pairing.create(http.store, "login")}).json()
 
 
+def test_wrong_codes_are_throttled(http):
+    for _ in range(pairing.CODE_GUESSES):
+        assert http.post("/pair", json={"code": "WRONG-CODE"}).status_code == 401
+    good = pairing.create(http.store, "pair", "laptop")
+    r = http.post("/pair", json={"code": good})
+    assert r.status_code == 429 and "try again" in r.json()["error"]
+    assert http.post("/api/login", json={"code": "WRONG-CODE"}).status_code == 429
+
+
 def test_sessions_renew_on_use(http):
     tok = http.post("/api/login", json={"code": pairing.create(http.store, "login")}
                     ).json()["token"]

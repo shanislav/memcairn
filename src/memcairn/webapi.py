@@ -238,7 +238,10 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
                 return blocked or err("wrong password", 401)
             token = auth.new_session(store, "password")
         else:
-            token = auth.web_session(store, str(data.get("code", "")))
+            try:
+                token = auth.web_session(store, str(data.get("code", "")))
+            except auth.TooManyGuesses as e:
+                return err(str(e), 429)
             if not token:
                 return err("unknown, used or expired login link", 401)
         return JSONResponse({"token": token, "client": auth.WEB_CLIENT})
@@ -267,7 +270,10 @@ def register(mcp, store: Store, authorize, public_url: str | None = None) -> Non
 
     @mcp.custom_route("/pair", methods=["POST"])
     async def pair(request):
-        got = auth.pair(store, await body_code(request))
+        try:
+            got = auth.pair(store, await body_code(request))
+        except auth.TooManyGuesses as e:
+            return err(str(e), 429)
         if not got:
             return err("unknown, used or expired pairing code", 401)
         return JSONResponse({"name": got[0], "token": got[1],

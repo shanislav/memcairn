@@ -37,8 +37,10 @@ docker compose up -d
 ```
 
 The image `ghcr.io/shanislav/memcairn` is built for amd64 and arm64 (a Raspberry Pi 4/5
-works): `latest` is the newest release, `X.Y.Z` a fixed one. To build it yourself, clone
-the repository and replace `image:` with `build: .` in `compose.yml`.
+works). `compose.yml` uses a fixed release (`MEMCAIRN_VERSION` in `.env` overrides it),
+so nothing changes until you update. To build it yourself, clone the repository and
+replace `image:` with `build: .` in `compose.yml`; the Dockerfile installs the exact
+dependency versions from `uv.lock`.
 
 `MEMCAIRN_PUBLIC_URL` is the address clients use. It turns on authentication and the
 Host-header check, and must match the hostname exactly. Then open the web UI:
@@ -68,7 +70,9 @@ server {
 }
 ```
 
-**Updating.** Server: `docker compose pull && docker compose up -d` (built yourself:
+**Updating.** Server: back up first (`docker compose exec memcairn memcairn backup
+/data/pre-update.db`), read [CHANGELOG.md](../CHANGELOG.md), set `MEMCAIRN_VERSION=X.Y.Z`
+in `.env`, then `docker compose pull && docker compose up -d` (built yourself:
 `git pull && docker compose build && docker compose up -d`); the database is migrated on
 start. Each machine: `uv tool upgrade memcairn`. `memcairn --version` shows what you
 have. (The development version: `uv tool install --reinstall git+https://github.com/shanislav/memcairn`.)

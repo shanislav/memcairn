@@ -56,6 +56,7 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           grep -q "^version = \"$v\"" pyproject.toml || { echo "pyproject.toml is not $v"; exit 1; }
+          grep -q "MEMCAIRN_VERSION:-$v}" compose.yml || { echo "compose.yml does not default to $v"; exit 1; }
       - run: uv pip install -e ".[dev]" && uv run pytest -q
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1

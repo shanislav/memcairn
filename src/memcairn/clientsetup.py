@@ -26,6 +26,7 @@ import copy
 import datetime as dt
 import difflib
 import json
+import os
 import re
 import shutil
 import sys
@@ -210,7 +211,15 @@ def _write_json(path: Path, doc: dict, backed: set[Path]) -> None:
         shutil.copy2(path, path.with_name(f"{path.name}.pre-memcairn-{_stamp()}"))
         backed.add(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+    # Claude Code may be running and read the file at any moment: never show it half a file.
+    tmp = path.with_name(f".{path.name}.memcairn-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    try:
+        os.replace(tmp, path)
+    except PermissionError:  # Windows, file held open: write in place instead
+        tmp.unlink(missing_ok=True)
+        path.write_text(text, encoding="utf-8")
 
 
 def _state_path(home: Path) -> Path:
@@ -266,6 +275,9 @@ def run_setup(home: Path, confirm: Callable[[Change, str], bool],
                 "# memcairn sync: url/token come from ~/.memcairn/client.toml\n")
             c.file.write_text(text.rstrip("\n") + "\n" + c.undo["block"], encoding="utf-8")
         else:
+            # Re-read: Claude Code may have written the file while the user was answering.
+            after = _load(c.file)
+            c.apply(after)
             _write_json(c.file, after, backed)
             docs[c.file] = after
         applied.append({"id": c.id, "file": str(c.file), "undo": c.undo,

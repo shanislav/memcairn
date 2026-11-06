@@ -110,8 +110,9 @@ echo "MEMCAIRN_PUBLIC_URL=https://memory.example.com" > .env   # the address cli
 docker compose up -d
 ```
 
-The image (`ghcr.io/shanislav/memcairn`, amd64 and arm64) is pulled from GitHub. The
-search model is downloaded on first use into `data/models`.
+The image (`ghcr.io/shanislav/memcairn`, amd64 and arm64) is pulled from GitHub, as the
+fixed release named in `compose.yml`. The search model is downloaded on first use into
+`data/models`.
 
 - `MEMCAIRN_PUBLIC_URL` must be exactly the address the clients will use (scheme and
   host). It also turns on authentication.
@@ -205,8 +206,9 @@ restart; write the test fact below in the next session, with this machine's own 
 - Store one test fact (`remember`, e.g. that Memcairn was installed, and where) and find
   it with `recall`.
 
-Updating later: on the server `docker compose pull && docker compose up -d`; on each
-machine `uv tool upgrade memcairn`.
+Updating later: on the server a backup, `MEMCAIRN_VERSION=X.Y.Z` in `.env`, then
+`docker compose pull && docker compose up -d` (details in docs/setup.md); on each machine
+`uv tool upgrade memcairn`.
 
 Finally tell the user in two or three sentences what they have: where the memory lives,
 how to browse it (`memcairn ui` or `https://<server>/ui`), how to add another machine
