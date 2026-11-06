@@ -70,13 +70,20 @@ scanner refuses the write.
 
 ## Recall
 
-1. The query is cleaned (stop words in sk/cs/en dropped, crude stemming, diacritics
-   folded) and time words ("last week", "v októbri", "2026-10") become a date filter.
+1. The query is cleaned (crude stemming, diacritics folded, a short sk/cs/en stop-word
+   list) and time words ("last week", "v októbri", "3 June 2023", "2026-10") become a
+   date filter. When nothing noted in that range matches, recall looks a week either
+   side, then at any time: the date usually says when something happened, not when it
+   was written down.
 2. Full-text candidates from FTS5 (BM25), widened by small synonym groups
-   (`ilo bmc ipmi idrac`, `záloha backup`, …; your own in `MEMCAIRN_SYNONYMS`).
+   (`ilo bmc ipmi idrac`, `záloha backup`, …; your own in `MEMCAIRN_SYNONYMS`). Scripts
+   without spaces (Chinese, Japanese, Thai, Korean) are indexed and queried as
+   overlapping character pairs.
 3. Score = term coverage and BM25, adjusted by importance, pinned, how often the fact was
-   used, and recency. Recency counts **activity, not calendar days**: a fact ages only
-   when its entity gets newer writes, so a project left alone for a year doesn't fade.
+   used, and recency. Coverage weighs each query word by how many entries contain it
+   (IDF), so frequent words count little in any language, with no word lists. Recency
+   counts **activity, not calendar days**: a fact ages only when its entity gets newer
+   writes, so a project left alone for a year doesn't fade.
 4. Weak hits far below the best one are dropped. When even the best is weak, the answer
    says `low confidence — try mode=deep`.
 5. A superseded fact that matches is answered by its successor, marked as such.

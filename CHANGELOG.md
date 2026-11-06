@@ -12,7 +12,15 @@
 - A query date with nothing noted on it no longer returns nothing: recall looks a week
   either side, then at any time (the date said when something happened, not when it was
   written down).
-- A public benchmark: retrieval on LoCoMo (`bench/locomo.py`, results in BENCHMARK.md).
+- **Chinese, Japanese, Thai and Korean** are searched without vectors too: text in
+  scripts without spaces is indexed as overlapping character pairs (before, a whole
+  sentence was one word). Existing databases are re-indexed once on start.
+- **Word weights from your data** (IDF): a word in many facts counts less than a rare
+  one, in any language, instead of every word counting the same.
+- Deep mode ranks facts in another language better (similarity also counts relative to
+  the best match).
+- Public benchmarks: retrieval on LoCoMo (`bench/locomo.py`) and a synthetic
+  nine-language set (`bench/multilingual.py`); results in BENCHMARK.md.
 
 ## 0.1.2 — 2026-11-06
 

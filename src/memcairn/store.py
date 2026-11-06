@@ -901,6 +901,8 @@ class Store:
         for h in hits:  # age by activity on the topic, not by the calendar (as in context)
             h.parts["recency"] = round(math.exp(-0.05 * self._active_age(h.memory)), 2)
         worst = max((-h.memory["rank"] for h in hits), default=0.0)
+        best_sim = max((sims.get(h.memory["id"], 0.0) for h in hits), default=0.0)
+
         def combine(lexical: float, semantic: float | None) -> float:
             if semantic is None:
                 return lexical
@@ -912,13 +914,18 @@ class Store:
             # absolute; confidence ("rel") therefore uses term coverage, not bm25.
             bm = -h.memory["rank"] / worst if worst > 0 else 0.0
             h.parts["bm25"] = round(bm, 2)
-            semantic = None
+            semantic = ordering = None
             if sims:
                 sim = sims.get(h.memory["id"], 0.0)
                 semantic = min(1.0, max(0.0, (sim - SIM_FLOOR) / (SIM_CEIL - SIM_FLOOR)))
                 h.parts["sim"] = round(sim, 2)
+                # For ordering, similarity also counts relative to the best one here, as
+                # bm25 does: across languages a small model's similarities stay low, and on
+                # an absolute scale they could never outrank a partial word match.
+                nearest = min(1.0, max(0.0, (sim - SIM_FLOOR) / max(best_sim - SIM_FLOOR, 1e-6)))
+                ordering = 0.5 * semantic + 0.5 * nearest
             h.parts["rel"] = round(combine(h.parts["coverage"], semantic), 2)
-            ranking = combine(0.6 * h.parts["coverage"] + 0.4 * bm, semantic)
+            ranking = combine(0.6 * h.parts["coverage"] + 0.4 * bm, ordering)
             h.score = round(
                 ranking * 0.75 + 0.15 * h.parts["importance"] + 0.1 * h.parts["recency"]
                 + (0.1 if h.memory["pinned"] else 0.0) - (0.2 if h.status else 0.0), 3)

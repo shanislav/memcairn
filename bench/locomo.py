@@ -15,8 +15,9 @@ is among the first k results (hit@k); recall@k is the share of all its evidence 
 found. Category 5 (adversarial: no answer exists) is left out, as in other reports.
 
 Compared on the same data: plain FTS5 BM25 over the same text, plain vector search with
-the same model, Memcairn recall (normal and deep). Only retrieval is measured: no LLM
-reads the results, so these numbers are not answer accuracy.
+the same model, Memcairn recall (normal, deep, and "agent": normal, then deep when it
+reports low confidence, as the MCP instructions tell agents). Only retrieval is measured:
+no LLM reads the results, so these numbers are not answer accuracy.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from memcairn.db import connect  # noqa: E402
 from memcairn.store import Store, query_terms  # noqa: E402
 from memcairn.vectors import from_env  # noqa: E402
 
+WEAK = 0.5  # below this, recall tells the agent "low confidence — try mode=deep"
 CATEGORIES = {1: "multi-hop", 2: "temporal", 3: "open-domain", 4: "single-hop"}
 
 
@@ -82,7 +84,7 @@ def vec_baseline(store: Store, q: str, k: int) -> list[int]:
 def run(path: Path, kind: str, k: int) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     embedder = from_env()
-    systems = ["bm25", "memcairn"] + (["vectors", "memcairn deep"] if embedder else [])
+    systems = ["bm25", "memcairn"] + (["vectors", "memcairn deep", "agent"] if embedder else [])
     res: dict[str, dict[int, list[tuple[float, float]]]] = {s: defaultdict(list) for s in systems}
     times: dict[str, list[float]] = defaultdict(list)
     stored = 0
@@ -106,7 +108,10 @@ def run(path: Path, kind: str, k: int) -> dict:
                 elif system == "vectors":
                     ids = vec_baseline(store, qa["question"], k)
                 else:
-                    hits = store.recall(qa["question"], limit=k, deep=system.endswith("deep")).hits
+                    got = store.recall(qa["question"], limit=k, deep=system.endswith("deep"))
+                    if system == "agent" and got.coverage < WEAK:  # as the MCP instructions say
+                        got = store.recall(qa["question"], limit=k, deep=True)
+                    hits = got.hits
                     ids = [h.memory["id"] for h in hits]
                 times[system].append(time.perf_counter() - t)
                 found = {e for i in ids[:k] for e in evidence.get(i, [])} & gold

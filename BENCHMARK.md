@@ -139,8 +139,11 @@ hit@5 / recall@5:
 |---|---|---|---|---|---|
 | FTS5 BM25 alone | 33 / 15 | 58 / 54 | 26 / 19 | 58 / 57 | 51 / 47 |
 | vector search alone (same model) | 32 / 14 | 45 / 42 | 22 / 16 | 38 / 37 | 38 / 33 |
-| Memcairn recall | 37 / 19 | **65 / 62** | 29 / 20 | **65 / 64** | **58 / 53** |
-| Memcairn recall, `mode=deep` | **43 / 21** | 60 / 57 | **32 / 24** | 61 / 60 | 56 / 50 |
+| Memcairn recall | 37 / 18 | **65 / 62** | 29 / 20 | **66 / 65** | **58 / 53** |
+| Memcairn recall, `mode=deep` | **44 / 21** | 60 / 57 | 28 / 21 | 60 / 59 | 55 / 49 |
+| agent: recall, then deep on low confidence | 40 / 21 | 64 / 61 | **30 / 23** | 62 / 61 | 57 / 51 |
+
+The last row is what an agent does when it follows the MCP instructions.
 
 What this shows, and what it doesn't:
 - **Only retrieval is measured.** No LLM reads the results, so these are not answer
@@ -149,16 +152,64 @@ What this shows, and what it doesn't:
 - **Raw turns are a hard case for Memcairn.** It is built for short facts an agent
   writes, not for chat lines like "Sounds great! What kind of books you got?". When the
   dataset's own extracted facts ("observations") are stored instead, plain recall gets
-  59 / 53 and `mode=deep` 62 / 55; vectors help more there (multi-hop 62 / 32, BM25 alone
-  43 / 19).
+  58 / 52, `mode=deep` 63 / 55 and the agent 61 / 54; vectors help more there
+  (multi-hop: deep 62 / 31, BM25 alone 43 / 19).
 - **The first run found two bugs, both fixed.** Dates with a day ("3 June, 2023",
   "April 10, 2023") were read as only the month, and of the wrong year. A date with
   nothing written on it returned nothing; now recall looks a week either side, then at
   any time. Together they took Memcairn from 53 to 58 hit@5. The author's set above went
   from 98% to 100%.
-- **Deep mode is not better on every question.** It helps multi-hop and open-domain
-  questions, where words don't match, and costs single-hop ones. This matches the
-  author's set: vectors only when plain recall is unsure.
+- **Deep mode is not better on every question.** It helps multi-hop questions, where
+  words don't match, and costs single-hop ones. This matches the author's set: vectors
+  only when plain recall is unsure.
+
+## Many languages (synthetic set)
+
+[`bench/multilingual.json`](bench/multilingual.json) is a public test set written for
+this: 92 short facts about a fictional company, noted in English, German, Spanish,
+French, Russian, Chinese, Japanese, Slovak and Czech, and 101 queries (92 with an
+answer, 9 without). Queries are keywords, questions, inflected forms, typos, text without
+diacritics, a fact that was later superseded (the current one must come back), and 14
+queries in another language than the fact. It is small and written by the author, so it
+shows where each part breaks rather than a score to quote.
+
+hit@5 by kind of query:
+
+| | n | BM25 alone | Memcairn | vectors alone | Memcairn deep | agent |
+|---|---|---|---|---|---|---|
+| keyword | 17 | 100% | 100% | 100% | 100% | 100% |
+| question | 40 | 98% | 100% | 98% | 100% | 100% |
+| inflection | 10 | 80% | 100% | 100% | 100% | 100% |
+| no diacritics | 5 | 100% | 100% | 100% | 100% | 100% |
+| typo | 3 | 100% | 100% | 100% | 100% | 100% |
+| superseded (current) | 3 | 100% | 100% | 100% | 100% | 100% |
+| cross-language | 14 | 43% | 50% | **79%** | 64% | 64% |
+| **all with an answer** | 92 | 88% | 92% | **96%** | 95% | 95% |
+| no answer: reported as low confidence | 9 | – | 100% | – | 100% | 100% |
+
+Every language reaches 100% with the agent, except English (83%) and French (90%),
+where the misses are cross-language queries.
+
+What changed because of this set:
+- **Chinese and Japanese.** They have no spaces between words, so the full-text index saw
+  each sentence as one word: plain recall found 22% (Chinese) and 30% (Japanese) of
+  their queries. Text in such scripts is now indexed and queried as overlapping character
+  pairs, and both are at 100% (the plain recall column above; overall 76% → 92%).
+- **Word weights from the data.** Coverage (how much of the query a fact matches) used
+  to count every word the same, so a fact matching only a frequent word ("server", a
+  speaker's name) looked as good as one matching the rare word that matters. Words now
+  weigh by how many entries contain them (IDF), in any language, without stop-word
+  lists.
+- **Similarity in deep mode** also counts relative to the best one in the result, as
+  bm25 does: across languages a small model's similarities stay low, and on an absolute
+  scale they couldn't outrank a partial word match. Cross-language with the agent 57% →
+  64%.
+
+Vector search alone wins on this set (96%). It doesn't on the other two: on LoCoMo it
+gets 38 against Memcairn's 58, and on the author's set vectors in every recall made
+results worse. On 92 facts on distinct topics the nearest vector is usually right; on
+thousands of similar ones it often isn't. Cross-language recall is the weak spot: a
+small static model links languages less well than a large one.
 
 ## Reproduce
 
@@ -167,6 +218,7 @@ uv pip install -e ".[dev]"
 python bench/bench.py --memory-json path/to/memory.json --queries my-queries.json
 curl -fsSLO https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json
 python bench/locomo.py locomo10.json                      # --units observations, --k 10
+python bench/multilingual.py                              # --by lang, --misses
 ```
 
 `my-queries.json`: `[{"q": "...", "cat": "keyword", "expect": ["Entity name"]}, ...]`.

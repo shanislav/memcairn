@@ -2,7 +2,7 @@
 
     uv run python bench/multilingual.py [--k 5] [--by lang|cat]
 
-~100 short facts about a fictional company, noted in English, German, Spanish, French,
+~90 short facts about a fictional company, noted in English, German, Spanish, French,
 Russian, Chinese, Japanese, Slovak and Czech, and ~100 queries: keywords, questions,
 inflected forms, typos, missing diacritics, queries in another language than the fact
 (cross-language), a fact that was later superseded (the query must get the current one)
