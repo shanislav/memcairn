@@ -32,17 +32,23 @@ HIT_LINE = re.compile(r"^m\d+ ", re.M)
 # Sent only when the user runs the cleanup prompt; never part of the per-turn tool cost.
 CLEANUP_RULES = """Clean up these {n} memories (of {total} that need it), one at a time:
 
-1. get(ids=[...]) to read the full text.
+1. get(ids=[...]) to read the full text, and recall(entity=<its entity>) to see what
+   newer facts already say about the same thing.
 2. Rewrite it in place with update(id, content=...) as a conclusion of at most 400
    characters: what happened or what holds, why (cause), how it ended. Updating in
    place keeps its id and date; the old text stays in version history.
-3. Extract every reusable detail as its own short fact with remember(entity=<same
-   entity>, type=...): IP addresses, paths, commands, causes, decisions, pitfalls
-   (howto/fact/decision), and open items (todo). When unsure, keep it as a fact:
-   more small facts are better than lost information.
-4. For a status log (commits, versions, "deployed X"), keep the lasting fact (what,
+3. Extract every reusable detail that still holds as its own short fact with
+   remember(entity=<same entity>, type=...): IP addresses, paths, commands, causes,
+   decisions, pitfalls (howto/fact/decision). When unsure, keep it as a fact: more
+   small facts are better than lost information.
+4. A log is old: check each detail against its own later lines and the newer facts
+   from step 1. Something that was replaced later (a tool, a path, a setting) goes into
+   the conclusion as history ("earlier X, now Y"), not into a fact of its own. Make a
+   todo only for what is still open; a step that later lines or newer facts show as done
+   or dropped is not a todo.
+5. For a status log (commits, versions, "deployed X"), keep the lasting fact (what,
    where, why, how to check), not the current state.
-5. Drop only narration and finished step-by-step progress.
+6. Drop only narration and finished step-by-step progress.
 
 At the end, tell the user how many memories you cleaned and roughly how much shorter
 they got. When nothing is left, close the "Memcairn cleanup" todo with

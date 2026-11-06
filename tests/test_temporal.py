@@ -1,5 +1,6 @@
 from datetime import date
 
+from memcairn import format
 from memcairn.db import connect
 from memcairn.store import Store
 from memcairn.temporal import parse
@@ -61,7 +62,11 @@ def test_a_date_with_nothing_noted_then_searches_around_it_and_then_anywhere():
     near, _ = store.remember("joined a gym", recorded_at="2023-06-20T00:00:00Z")
     far, _ = store.remember("left the gym", recorded_at="2024-01-05T00:00:00Z")
     # nothing was written on June 16: the fact noted four days later is found
-    assert [h.memory["id"] for h in store.recall("gym on 16 June 2023").hits] == [near["id"]]
-    # nothing within a week either: any time
-    hits = store.recall("gym on 1 March 2023").hits
-    assert {h.memory["id"] for h in hits} == {near["id"], far["id"]}
+    res = store.recall("gym on 16 June 2023")
+    assert [h.memory["id"] for h in res.hits] == [near["id"]] and "week around" in res.note
+    # nothing within a week either: any time, and the answer says so
+    res = store.recall("gym on 1 March 2023")
+    assert {h.memory["id"] for h in res.hits} == {near["id"], far["id"]}
+    text = format.recall(res, max_tokens=600, limit=5, explain=False, deep=False)
+    assert "these are from any time" in text
+    assert not store.recall("gym in June 2023").note  # found in the period itself

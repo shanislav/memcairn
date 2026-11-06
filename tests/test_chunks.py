@@ -58,6 +58,15 @@ def test_recall_returns_the_matching_part_not_the_document():
     assert format.tokens(text) < 80
 
 
+def test_a_type_or_entity_filter_leaves_documents_out():
+    store = store_with_inventory()
+    row, _ = store.remember("move db7 mysql to the new host", type="todo", entity="db7")
+    for filt in ({"type": "todo"}, {"entity": "db7"}):
+        res = store.recall("db7 mysql", **filt)
+        assert res.chunks == [] and [h.memory["id"] for h in res.hits] == [row["id"]], filt
+    assert store.recall("db7 mysql").chunks  # without a filter they are there
+
+
 def test_parts_are_capped_so_facts_still_show():
     store = store_with_inventory()
     for i in range(3):

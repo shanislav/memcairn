@@ -99,3 +99,21 @@ def test_a_failure_mid_write_leaves_nothing_behind(path, monkeypatch):
         "atlas runs PostgreSQL 15", 1, None)
     assert q("SELECT count(*) FROM memory_fts").fetchone()[0] == 1
     assert s.recall("half written").hits == []
+
+
+def test_one_store_serves_many_threads_at_once(path):
+    """The server: one Store, every MCP tool call in its own thread."""
+    s = Store(connect(path))
+    ids = [s.remember(f"server s{i} runs postgres and nginx", entity=f"s{i}",
+                      check_duplicates=False)[0]["id"] for i in range(40)]
+
+    def work(i):
+        for j in range(30):
+            if i % 4 == 0:
+                s.remember(f"note {i}-{j} about postgres", check_duplicates=False)
+            hits = s.recall("postgres nginx server", limit=5).hits
+            assert hits
+            assert s.get([ids[(i + j) % len(ids)]])[0]["content"].startswith("server")
+        return True
+    out = together(8, work)
+    assert out == [True] * 8, [o for o in out if o is not True][:2]

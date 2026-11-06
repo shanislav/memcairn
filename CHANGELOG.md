@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Fixed: several tool calls at once could fail** ("Error executing tool recall", or a
+  "not found" for an id that exists). The server shares one database connection between
+  the threads that run tool calls; reads now take the same lock as writes.
+- `type=` and `entity=` filters in recall now leave document parts out (they have
+  neither), instead of letting them through.
+- When a date in the query had to be widened or dropped, the answer says so.
+- The `cleanup` prompt checks old logs against newer facts: details that were replaced
+  later go into the conclusion as history, and only still-open steps become todos.
 - **Only you pin.** Pinned facts reach every session on every machine, so an agent can
   only ask: `pinned=true` from an agent (or a machine token) stores the fact unpinned and
   adds a pin request, and changing the text of a pinned fact unpins it until approved

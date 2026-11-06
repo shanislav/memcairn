@@ -100,6 +100,8 @@ def recall(result: RecallResult, *, max_tokens: int, limit: int, explain: bool,
     lines = [chunk_line(x, explain=explain) if isinstance(x, DocHit)
              else hit_line(x, explain=explain) for _, x in ranked[:limit]]
     text = budgeted(lines, max_tokens, "(narrow the query or raise max_tokens)")
+    if result.note:
+        text += f"\n({result.note})"
     if weak:
         text += ("\nlow confidence — likely not in memory" if deep
                  else "\nlow confidence — try mode=deep")

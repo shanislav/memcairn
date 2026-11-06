@@ -83,6 +83,7 @@ class RecallResult:
     hits: list[Hit]
     coverage: float  # confidence: best relevance (0-1) of any single hit
     chunks: list[DocHit] = field(default_factory=list)
+    note: str = ""  # e.g. that the query's date was widened
 
 
 @dataclass
@@ -236,10 +237,50 @@ def parse_id(ref: str | int) -> int:
     return int(s)
 
 
+class _Rows:
+    """A finished statement: all its rows, plus lastrowid and rowcount."""
+    __slots__ = ("_rows", "lastrowid", "rowcount")
+
+    def __init__(self, cur: sqlite3.Cursor):
+        self._rows = cur.fetchall()
+        self.lastrowid, self.rowcount = cur.lastrowid, cur.rowcount
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list:
+        return self._rows
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class SerialConnection:
+    """The one SQLite connection, shared by the server's threads (each MCP tool call runs
+    in its own) and its event loop. A sqlite3 connection must not be used by two threads
+    at the same moment ("bad parameter or other API misuse"), so every statement runs
+    under the store's lock and is read to the end inside it. The lock is the one write
+    transactions hold, so a statement never lands in the middle of someone's write."""
+
+    def __init__(self, conn: sqlite3.Connection, lock):
+        self._conn, self._lock = conn, lock
+
+    def execute(self, sql: str, params=()) -> _Rows:
+        with self._lock:
+            return _Rows(self._conn.execute(sql, params))
+
+    def executemany(self, sql: str, seq) -> _Rows:
+        with self._lock:
+            return _Rows(self._conn.executemany(sql, seq))
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 class Store:
     def __init__(self, conn: sqlite3.Connection, embedder=None):
-        self.conn = conn
         self.lock = threading.RLock()
+        self.conn = SerialConnection(conn, self.lock)
         self.embedder = embedder
         self.defer_vectors = False
         self._active_days: dict[int, list[str]] | None = None
@@ -866,12 +907,17 @@ class Store:
             # when it was written down. Look a week either side, then at any time.
             again = dict(scope=scope, type=type, entity=entity, include_old=include_old,
                          limit=limit)
+            # The answer says so: the agent must not take these as from that period.
             if _window is None and until - since <= timedelta(days=31):
                 wide = self.recall(query, **again,
                                    _window=(since - timedelta(7), until + timedelta(7)))
                 if wide.hits:
+                    wide.note = wide.note or ("nothing noted in that period matches; these "
+                                              "are from the week around it")
                     return wide
-            return self.recall(query, **again, _window=(None, None))
+            anytime = self.recall(query, **again, _window=(None, None))
+            anytime.note = "nothing noted in that period matches; these are from any time"
+            return anytime
 
         # Semantic candidates, deep mode only: on the benchmark, full text alone already
         # finds almost everything that shares words with the query, and mixing vectors in
@@ -932,7 +978,9 @@ class Store:
         if current_only:
             hits = self._promote_successors(hits)
         hits.sort(key=lambda h: h.score, reverse=True)
-        chunks = self._doc_hits(match, qterms, limit=12 if deep else 6)
+        # Document parts have no type or entity: a filter on either asks for facts only.
+        chunks = [] if (type or entity) else self._doc_hits(match, qterms,
+                                                             limit=12 if deep else 6)
         confidence = max([h.parts["rel"] for h in hits] + [c.parts["rel"] for c in chunks],
                          default=0.0)
         return RecallResult(hits=hits[:limit], coverage=confidence, chunks=chunks)
