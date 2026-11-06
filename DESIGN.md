@@ -24,8 +24,8 @@ latency, money and the occasional invented fact.
 **Token economy is a requirement.** Everything the server puts into the context must earn
 its place:
 
-- seven tools with one-line descriptions and compacted schemas (~900 tokens, paid every
-  turn); the usage rules travel once per session as MCP instructions;
+- seven tools with one-line descriptions and compacted schemas (~980 tokens, paid every
+  turn); the usage rules (~470) travel once per session as MCP instructions;
 - session start: a brief overview injected by a hook (~200 tokens: the topics and
   documents memory covers, pinned facts, the number of open todos), so the model knows
   when to recall without having to remember to call a tool. Ranked facts picked before
@@ -43,11 +43,15 @@ web UI remove data.
 
 **Concurrency without surprises.** One writer connection, SQLite WAL, idempotency keys,
 and optimistic versions: an `update` or a document upload based on a stale version is
-rejected with the current state, never applied over it.
+rejected with the current state, never applied over it. A write and its history, index
+entry and duplicate check are one transaction. Tests run several writers on one file at
+once: of two edits of the same version one wins, a retried write is stored once, and a
+failure halfway leaves nothing behind.
 
-**One person, several machines; no teams.** All clients share the `global` scope unless
-given their own. Teams would need access rules (who may read and change what) and are out
-of scope for now.
+**One person, several machines; no teams yet.** All clients share the `global` scope
+unless given their own, and a scope is an organizing aid, not a permission: any valid
+token can `get` or `update` any fact by id. Give tokens only to your own machines and
+apps. Teams need real access rules; see [ROADMAP.md](ROADMAP.md).
 
 ## Data model
 
@@ -63,6 +67,8 @@ SQLite, migrations in `db.py` (`PRAGMA user_version`).
 | `memory_vec` | embeddings for semantic search, per model |
 | `client` | one row per machine or app: name, token hash, default scope, last seen, revoked |
 | `oauth_*`, `onetime` | OAuth clients, codes and tokens; one-time login and pairing codes; hashes only |
+| `pin_request` | pins an agent asked for, waiting for the user's approval |
+| `setting` | server settings: the web UI password hash, one-time index upgrades |
 | `call_log` | every tool call: client, tool, query, tokens, hits, latency (30 days) |
 
 Full-text search is FTS5 with diacritics folding. Secrets never reach the tables: the
@@ -92,9 +98,11 @@ scanner refuses the write.
 **Deep mode** (`mode="deep"`, same tool) adds semantic similarity from a local embedding
 model (`potion-multilingual-128M` by default, CPU, ~0.5 GB on disk and ~0.6 GB in
 memory, read memory-mapped; finds facts in another language or with no shared words;
-`MEMCAIRN_EMBED_MODEL=none` leaves basic search at ~0.1 GB), includes superseded and expired facts, and returns
-more. It is not the default because on the benchmark, vectors in every recall made
-results slightly worse: semantic search always finds *something*.
+`MEMCAIRN_EMBED_MODEL=none` leaves basic search at ~0.1 GB), includes superseded and
+expired facts, and returns more. It is not the default because vectors in every recall
+made results worse on real memory and on LoCoMo: semantic search always finds
+*something*. For ordering, similarity counts half absolute and half relative to the best
+match, as bm25 does, so a fact in another language can outrank a partial word match.
 
 **Session context**: the brief overview lists the biggest topics and the shared documents
 (names only, capped), pinned facts in full and the number of open todos. With
@@ -139,7 +147,8 @@ database.
 - **Pairing**: nobody has to copy a token. "Add machine" in the web UI (or
   `memcairn add-machine` on the server) makes a one-time code, 10 minutes;
   `memcairn pair` on the new machine trades it for a token and writes it straight into the
-  configuration. Codes have 40 bits and work once.
+  configuration. Codes have 40 bits and work once; after 20 wrong codes in 15 minutes no
+  code is accepted until the window passes.
 - **Web UI**: one password (one person, no accounts), stored as a scrypt hash, five wrong
   tries block it for 15 minutes. Sessions last 30 days from the last use; signing out
   ends one. `memcairn login-link` (a one-time link, from the server) is the first login and
@@ -173,11 +182,12 @@ database.
 | `importers.py`, `review.py`, `purge.py`, `doctor.py`, `chronicle.py` | import/export, cleanup, purge, checks, topic history |
 | `vectors.py`, `temporal.py`, `secretscan.py`, `format.py` | embeddings, time words, secret scan, output formatting |
 
-## Next
+## Testing
 
-- Consolidation proposals beyond long and status-like memories: similar pairs, stale
-  todos, overgrown entities; optionally with an LLM.
-- Project scopes keyed by the normalized git remote.
+`uv run pytest` covers the store, recall, documents and sync, the web API, auth and
+OAuth, client setup, concurrency and recall in several scripts. Recall quality is
+measured separately by the three benchmarks in [BENCHMARK.md](BENCHMARK.md); a change to
+ranking should leave all three no worse.
 
 Ideas borrowed from other projects: bi-temporal facts and invalidation (Graphiti),
 supersede chains (mcp-memory-service, supermemory), ranked retrieval with a token budget

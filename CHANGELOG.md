@@ -21,6 +21,11 @@
   the best match).
 - Public benchmarks: retrieval on LoCoMo (`bench/locomo.py`) and a synthetic
   nine-language set (`bench/multilingual.py`); results in BENCHMARK.md.
+- Tests for several writers on one database at once and for a failure halfway through
+  a write.
+- Docs: [ROADMAP.md](ROADMAP.md) (including what teams would need), current numbers
+  everywhere, a section on search and languages, clearer notes that scopes are not
+  permissions.
 
 ## 0.1.2 — 2026-11-06
 

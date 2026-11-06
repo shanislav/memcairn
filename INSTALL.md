@@ -122,8 +122,7 @@ fixed release named in `compose.yml`. The search model is downloaded on first us
 - For claude.ai and the phone: add `MEMCAIRN_OAUTH=1` to `.env` and allow
   Anthropic's outbound ranges in the proxy (see
   [docs/setup.md](docs/setup.md#claudeai-claude-desktop-chat-and-the-mobile-apps-oauth)).
-- Check: `curl -s -o /dev/null -w "%{http_code}
-" -X POST https://memory.example.com/mcp`
+- Check: `curl -s -o /dev/null -w "%{http_code}\n" -X POST https://memory.example.com/mcp`
   prints `401` (not a proxy error such as 403/502, not a timeout).
 
 Give the user the web UI, where they add machines and see what memory holds:
@@ -150,7 +149,7 @@ You need a pairing code. Either:
 Then, on this computer:
 
 ```bash
-uv tool install memcairn
+uv tool install memcairn      # no [vector] needed: the server does the searching
 memcairn pair https://memory.example.com K7QM-42XD
 ```
 
@@ -201,8 +200,10 @@ restart; write the test fact below in the next session, with this machine's own 
 - `memcairn doctor` checks the configuration, the connection and the hook; it changes
   nothing. Fix what it reports.
 - Ask the user to restart Claude Code (or start a new session). The new session begins
-  with a short "Long-term memory (Memcairn) overview"; the tools are `recall`, `get`,
-  `remember`, `update`, `forget`, `link`, `context`.
+  with a short "Long-term memory (Memcairn) is connected" overview; the tools are
+  `recall`, `get`, `remember`, `update`, `forget`, `link`, `context`.
+- Tell the user that agents can only *ask* to pin a fact (pinned facts reach every
+  session); they approve or reject requests at the top of the web UI overview.
 - Store one test fact (`remember`, e.g. that Memcairn was installed, and where) and find
   it with `recall`.
 

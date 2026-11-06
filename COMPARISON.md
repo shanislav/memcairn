@@ -1,7 +1,8 @@
 # How Memcairn compares
 
 A feature comparison with other long-term memory systems for agents, as of November 2026.
-Measured numbers against the official MCP memory server are in [BENCHMARK.md](BENCHMARK.md).
+Measured numbers (against the official MCP memory server, on LoCoMo and in nine
+languages) are in [BENCHMARK.md](BENCHMARK.md).
 
 | | Memcairn | server-memory (official) | Mem0 / OpenMemory | Graphiti / Zep | Basic Memory | mcp-memory-service | Hindsight | Letta |
 |---|---|---|---|---|---|---|---|---|
@@ -16,8 +17,7 @@ Measured numbers against the official MCP memory server are in [BENCHMARK.md](BE
 | Duplicate handling | candidates shown to the agent on write | name only | LLM merge | LLM entity resolution | – | heuristic | LLM | agent |
 | Consolidation | daily review, cleanup prompt (originals kept) | no | – | – | – | scheduled "dream" | reflect | sleep-time agents |
 | Several machines | per-machine tokens, pairing codes, OAuth for claude.ai | stdio only | API key | none in reference server | cloud | OAuth | bearer | API |
-| Secret scanning on write | **yes** | no | no | no | no | no | no | no |
-| Self-hosting footprint | one Python process | one Node process | several containers | graph DB + LLM | one process | one process | Postgres + LLM | server |
+| Secret scanning on write | **yes** | no | no | no | no | no | no | no || Self-hosting footprint | one Python process | one Node process | several containers | graph DB + LLM | one process | one process | Postgres + LLM | server |
 | Human-editable files | shared markdown documents synced to files | JSON | no | no | **native markdown** | no | no | MemFS markdown |
 
 ## What Memcairn is for
@@ -33,4 +33,5 @@ and instant, recall doesn't eat the context window, and nothing is lost silently
 - **Strong semantic recall by default.** The default embedding model is small and fast
   and is used only in deep mode; Mem0, Hindsight and Graphiti lean much harder on
   embeddings and LLMs. A larger model can be configured.
-- **A team tool.** There are no per-user access rules.
+- **A team tool, yet.** There are no per-user access rules; any token can read and
+  change every fact. Teams are on the [roadmap](ROADMAP.md).
