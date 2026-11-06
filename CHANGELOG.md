@@ -7,6 +7,12 @@
   adds a pin request, and changing the text of a pinned fact unpins it until approved
   again. Approve or reject requests at the top of the web UI overview; the session
   overview shows only how many wait.
+- Dates with a day in a query ("3 June, 2023", "April 10, 2023", "3. júna 2023",
+  "3.6.2023") are understood; before, only the month was read, and of the wrong year.
+- A query date with nothing noted on it no longer returns nothing: recall looks a week
+  either side, then at any time (the date said when something happened, not when it was
+  written down).
+- A public benchmark: retrieval on LoCoMo (`bench/locomo.py`, results in BENCHMARK.md).
 
 ## 0.1.2 — 2026-11-06
 

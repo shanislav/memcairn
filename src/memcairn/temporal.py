@@ -43,6 +43,16 @@ RELATIVE = [
 ]
 
 
+_ON = r"\b(?:(?:on|dna) )?"
+_D = r"([0-3]?\d)(?:st|nd|rd|th|\.)?"
+_Y = r"(?:,? ((?:19|20)\d\d))?\b"
+DAY_PATTERNS = [  # (regex, group numbers of day, month, year)
+    (_ON + _D + r" ([a-z]{3,})" + _Y, (1, 2, 3)),               # 3 June, 2023
+    (_ON + r"([a-z]{3,}) " + _D + _Y, (2, 1, 3)),               # June 3, 2023
+    (_ON + r"([0-3]?\d)\. ?([01]?\d)\. ?((?:19|20)\d\d)\b", (1, 2, 3)),  # 3.6.2023
+]
+
+
 def fold(text: str) -> str:
     nfkd = unicodedata.normalize("NFKD", text.lower())
     return "".join(c for c in nfkd if not unicodedata.combining(c))
@@ -83,6 +93,19 @@ def parse(query: str, today: date | None = None) -> tuple[str, date | None, date
                 start = date(y, mo, int(m.group(3)))
                 return _cut(query, q, m), start, start + timedelta(1)
             return (_cut(query, q, m), *_month_range(y, mo))
+    # one day: "3 June, 2023", "June 3rd 2023", "3. juna 2023", "3.6.2023" (year optional)
+    for pattern, dmy in DAY_PATTERNS:
+        for m in re.finditer(pattern, q):
+            d, mo, y = (m.group(i) for i in dmy)
+            month = int(mo) if mo.isdigit() else MONTH_WORDS.get(mo)
+            if not month:
+                continue
+            year = int(y) if y else (today.year if month <= today.month else today.year - 1)
+            try:
+                start = date(year, month, int(d))
+            except ValueError:
+                continue
+            return _cut(query, q, m), start, start + timedelta(1)
     # month name, optionally with "in/v/vo" before and a year after
     for m in re.finditer(r"\b(?:(?:in|v|vo) )?([a-z]+)(?: (20\d\d))?\b", q):
         month = MONTH_WORDS.get(m.group(1))

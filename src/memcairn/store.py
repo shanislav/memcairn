@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import secretscan, temporal
@@ -759,11 +759,13 @@ class Store:
         deep: bool = False,
         include_old: bool = False,
         limit: int = 50,
+        _window: tuple | None = None,
     ) -> RecallResult:
         chain = self.scope_chain(scope)
         where = [f"m.scope_id IN ({','.join('?' * len(chain))})", "m.deleted_at IS NULL"]
         args: list = list(chain)
-        query, since, until = temporal.parse(query)
+        # _window: the fallback below, (since, until) or (None, None) for no time filter
+        query, since, until = temporal.parse(query) if _window is None else (query, *_window)
         if since:  # "last week", "v októbri", "2026-10"...: written or changed in that range
             where.append("((m.recorded_at >= ? AND m.recorded_at < ?) OR "
                          "(m.updated_at >= ? AND m.updated_at < ?))")
@@ -811,7 +813,19 @@ class Store:
         sql += f" ORDER BY rank LIMIT {int(limit) * (3 if deep else 2)}"
         rows = {r["id"]: r for r in self.conn.execute(sql, (match, *args)).fetchall()}
         if since and not rows and not deep:
-            return listing()  # "what did we do yesterday": leftover words are just filler
+            found = listing() if _window is None else RecallResult(hits=[], coverage=0.0)
+            if found.hits:  # "what did we do yesterday": leftover words are just filler
+                return found
+            # Nothing noted in that range matches: the date says when it happened, not
+            # when it was written down. Look a week either side, then at any time.
+            again = dict(scope=scope, type=type, entity=entity, include_old=include_old,
+                         limit=limit)
+            if _window is None and until - since <= timedelta(days=31):
+                wide = self.recall(query, **again,
+                                   _window=(since - timedelta(7), until + timedelta(7)))
+                if wide.hits:
+                    return wide
+            return self.recall(query, **again, _window=(None, None))
 
         # Semantic candidates, deep mode only: on the benchmark, full text alone already
         # finds almost everything that shares words with the query, and mixing vectors in

@@ -122,11 +122,51 @@ let a Slovak question find a fact written in another grammatical case or without
 - **This is not a comparison with Mem0, Graphiti, Hindsight and similar systems.** Those
   need an LLM on every write; see [COMPARISON.md](COMPARISON.md) for a feature comparison.
 
+## Public data: LoCoMo (English)
+
+The test above uses the author's own data and queries. As an independent check, retrieval
+was also measured on [LoCoMo](https://github.com/snap-research/locomo) (Maharana et al.,
+2024). It has 10 long conversations between two people (~600 turns each, spread over
+months) and 1,540 questions in categories 1–4, each labelled with the turns that hold
+the answer. Each conversation gets its own fresh memory. Every turn is stored as a fact
+(`Speaker: text`, entity = speaker, recorded on the session date). A question counts as
+found when an evidence turn is among the first 5 results (hit@5); recall@5 is the share
+of all its evidence turns found.
+
+hit@5 / recall@5:
+
+| system | multi-hop | temporal | open-domain | single-hop | all |
+|---|---|---|---|---|---|
+| FTS5 BM25 alone | 33 / 15 | 58 / 54 | 26 / 19 | 58 / 57 | 51 / 47 |
+| vector search alone (same model) | 32 / 14 | 45 / 42 | 22 / 16 | 38 / 37 | 38 / 33 |
+| Memcairn recall | 37 / 19 | **65 / 62** | 29 / 20 | **65 / 64** | **58 / 53** |
+| Memcairn recall, `mode=deep` | **43 / 21** | 60 / 57 | **32 / 24** | 61 / 60 | 56 / 50 |
+
+What this shows, and what it doesn't:
+- **Only retrieval is measured.** No LLM reads the results, so these are not answer
+  accuracy and can't be compared with the "LLM judge" scores that Mem0, Zep and others
+  report on LoCoMo.
+- **Raw turns are a hard case for Memcairn.** It is built for short facts an agent
+  writes, not for chat lines like "Sounds great! What kind of books you got?". When the
+  dataset's own extracted facts ("observations") are stored instead, plain recall gets
+  59 / 53 and `mode=deep` 62 / 55; vectors help more there (multi-hop 62 / 32, BM25 alone
+  43 / 19).
+- **The first run found two bugs, both fixed.** Dates with a day ("3 June, 2023",
+  "April 10, 2023") were read as only the month, and of the wrong year. A date with
+  nothing written on it returned nothing; now recall looks a week either side, then at
+  any time. Together they took Memcairn from 53 to 58 hit@5. The author's set above went
+  from 98% to 100%.
+- **Deep mode is not better on every question.** It helps multi-hop and open-domain
+  questions, where words don't match, and costs single-hop ones. This matches the
+  author's set: vectors only when plain recall is unsure.
+
 ## Reproduce
 
 ```bash
 uv pip install -e ".[dev]"
 python bench/bench.py --memory-json path/to/memory.json --queries my-queries.json
+curl -fsSLO https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json
+python bench/locomo.py locomo10.json                      # --units observations, --k 10
 ```
 
 `my-queries.json`: `[{"q": "...", "cat": "keyword", "expect": ["Entity name"]}, ...]`.

@@ -45,3 +45,23 @@ def test_filler_words_fall_back_to_the_period():
     row, _ = store.remember("firewall rule removed", recorded_at="2026-10-20T00:00:00Z")
     hits = store.recall("čo sa robilo v októbri 2026").hits
     assert [h.memory["id"] for h in hits] == [row["id"]]
+
+
+def test_single_days():
+    june3 = (date(2023, 6, 3), date(2023, 6, 4))
+    for q in ("pet died on 3 June, 2023", "pet died June 3rd 2023", "pet died 3. júna 2023",
+              "pet died 3.6.2023"):
+        assert parse(q, TODAY) == ("pet died", *june3), q
+    assert parse("backup on March 3", TODAY)[1] == date(2026, 3, 3)  # no year: the last one
+    assert parse("I may go 2 times", TODAY) == ("I may go 2 times", None, None)
+
+
+def test_a_date_with_nothing_noted_then_searches_around_it_and_then_anywhere():
+    store = Store(connect(":memory:"))
+    near, _ = store.remember("joined a gym", recorded_at="2023-06-20T00:00:00Z")
+    far, _ = store.remember("left the gym", recorded_at="2024-01-05T00:00:00Z")
+    # nothing was written on June 16: the fact noted four days later is found
+    assert [h.memory["id"] for h in store.recall("gym on 16 June 2023").hits] == [near["id"]]
+    # nothing within a week either: any time
+    hits = store.recall("gym on 1 March 2023").hits
+    assert {h.memory["id"] for h in hits} == {near["id"], far["id"]}
