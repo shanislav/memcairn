@@ -99,8 +99,10 @@ Caveats:
   | `paraphrase-multilingual-mpnet-base-v2` | 87% | 395 s |
   | `paraphrase-multilingual-MiniLM-L12-v2` | 76% | 46 s |
 
-  Times are on 3 server CPU cores; `Qwen3-Embedding-0.6B` didn't fit in a 6 GB memory
-  limit. The static potion model was both the best and by far the cheapest.
+  Times are on the author's home server, a 2017 desktop CPU (Intel Core i3-7100, 2 cores
+  / 4 threads; the test container had 3 of them and 6 GB of memory, in which
+  `Qwen3-Embedding-0.6B` didn't fit). Any recent machine is faster; the order stays. The
+  static potion model was both the best and by far the cheapest.
 - **Not a comparison with Mem0, Graphiti, Hindsight and similar systems**, which run an
   LLM on every write; see [COMPARISON.md](COMPARISON.md).
 
