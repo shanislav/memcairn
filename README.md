@@ -68,7 +68,7 @@ Three tests, all reproducible ([method, numbers and caveats](https://github.com/
 | | found | compared with |
 |---|---|---|
 | 998 real facts, 50 queries (the author's memory) | **100%**, ~190 tokens per query | official `server-memory`: 24%, ~2,055 tokens |
-| [LoCoMo](https://github.com/snap-research/locomo), 1,540 questions over long conversations | **58%** | plain BM25: 51%, plain vector search: 38% |
+| [LoCoMo](https://github.com/snap-research/locomo), 1,540 questions over long conversations | **60%** | plain BM25: 54%, plain vector search: 38% |
 | 92 facts in nine languages, 101 queries | **95%** | plain BM25: 88% |
 
 LoCoMo measures retrieval only (is the evidence among the results), not answers written

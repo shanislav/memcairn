@@ -216,3 +216,21 @@ def test_synonyms_from_file(tmp_path, monkeypatch):
         monkeypatch.delenv("MEMCAIRN_SYNONYMS")
         st._synonym_groups.cache_clear()
         st.alternatives.cache_clear()
+
+
+def test_type_todo_without_topic_words_lists_the_open_ones():
+
+    s = Store(connect(":memory:"))
+    open_ids = [s.remember(f"check backup on host{i}", type="todo")[0]["id"] for i in range(12)]
+    done, _ = s.remember("check backup on hostX", type="todo")
+    s.update(done["id"], status="done")
+    s.remember("deploy rule: back up first", type="howto")
+    for q in ("todo", "open todos", "všetky otvorené todo"):
+        res = s.recall(q, type="todo")
+        assert res.listing and {h.memory["id"] for h in res.hits} == set(open_ids), q
+    text = format.recall(s.recall("todo", type="todo"), max_tokens=600, limit=50,
+                         explain=False, deep=False)
+    assert text.count("· todo ·") == 12
+    # topic words still search, among open todos only
+    assert [h.memory["id"] for h in s.recall("todo host3", type="todo").hits][:1] == [open_ids[3]]
+    assert done["id"] in {h.memory["id"] for h in s.recall("hostX", type="todo", deep=True).hits}

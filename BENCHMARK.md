@@ -5,7 +5,7 @@ Three tests of how well `recall` finds things, each on different data:
 | | data | Memcairn | compared with |
 |---|---|---|---|
 | [Real memory](#1-real-memory-vs-the-official-memory-server) | 997 facts of one person's memory, 50 queries | **100%** hit@5, ~190 tokens per query | official `server-memory`: 24%, ~2,055 tokens |
-| [LoCoMo](#2-public-data-locomo-english) | 10 long public conversations, 1,540 questions | **58%** hit@5 | plain BM25: 51%, plain vectors: 38% |
+| [LoCoMo](#2-public-data-locomo-english) | 10 long public conversations, 1,540 questions | **60%** hit@5 | plain BM25: 54%, plain vectors: 38% |
 | [Nine languages](#3-many-languages-synthetic-set) | 92 synthetic facts, 101 queries | **95%** hit@5 | plain BM25: 88% |
 
 hit@5: the right fact is among the five lines recall returns. All numbers are from the
@@ -121,11 +121,11 @@ hit@5 / recall@5:
 
 | system | multi-hop | temporal | open-domain | single-hop | all |
 |---|---|---|---|---|---|
-| FTS5 BM25 alone | 33 / 15 | 58 / 54 | 26 / 19 | 58 / 57 | 51 / 47 |
+| FTS5 BM25 alone | 34 / 16 | 62 / 59 | 26 / 19 | 60 / 59 | 54 / 49 |
 | vector search alone (same model) | 32 / 14 | 45 / 42 | 22 / 16 | 38 / 37 | 38 / 33 |
-| Memcairn recall | 37 / 18 | **65 / 62** | 29 / 20 | **66 / 65** | **58 / 53** |
-| Memcairn recall, `mode=deep` | **44 / 21** | 60 / 57 | 28 / 21 | 60 / 59 | 55 / 49 |
-| agent: recall, then deep on low confidence | 40 / 21 | 64 / 61 | **30 / 23** | 62 / 61 | 57 / 51 |
+| Memcairn recall | 37 / 19 | **69 / 65** | 29 / 20 | **67 / 66** | **60 / 54** |
+| Memcairn recall, `mode=deep` | **46 / 22** | 62 / 59 | 29 / 21 | 61 / 59 | 56 / 50 |
+| agent: recall, then deep on low confidence | 43 / 21 | 66 / 64 | **30 / 23** | 64 / 62 | 58 / 53 |
 
 The last row is what an agent does when it follows the MCP instructions.
 
@@ -136,12 +136,14 @@ What this shows, and what it doesn't:
 - **Raw turns are a hard case for Memcairn.** It is built for short facts an agent
   writes, not for chat lines like "Sounds great! What kind of books you got?". When the
   dataset's own extracted facts ("observations") are stored instead, plain recall gets
-  58 / 52, `mode=deep` 63 / 55 and the agent 61 / 54; vectors help more there
-  (multi-hop: deep 62 / 31, BM25 alone 43 / 19).
+  59 / 52, `mode=deep` 63 / 55 and the agent 60 / 54; vectors help more there
+  (multi-hop: deep 64 / 33, BM25 alone 44 / 20).
 - **The first run found two bugs, both fixed.** Dates with a day ("3 June, 2023",
   "April 10, 2023") were read as only the month, and of the wrong year. A date with
   nothing written on it returned nothing; now recall looks a week either side, then at
   any time. Together they took Memcairn from 53 to 58 hit@5 (test 1: 98% → 100%).
+  Forms of "to be" (sk *bol*, cs *byl*, en *were*) in the stop-word list then took it
+  to 60 (BM25 alone 51 → 54, it uses the same query words).
 - **Deep mode is not better on every question.** It helps multi-hop questions, where
   words don't match, and costs single-hop ones. This matches test 1: vectors only when
   plain recall is unsure.
@@ -189,7 +191,7 @@ What changed because of this set:
   64%.
 
 Vector search alone wins on this set (96%). It doesn't on the other two: on LoCoMo it
-gets 38 against Memcairn's 58, and in test 1 vectors in every recall made results
+gets 38 against Memcairn's 60, and in test 1 vectors in every recall made results
 worse. On 92 facts on distinct topics the nearest vector is usually right; on
 thousands of similar ones it often isn't. Cross-language recall is the weak spot: a
 small static model links languages less well than a large one.

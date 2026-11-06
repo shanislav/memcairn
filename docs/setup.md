@@ -305,7 +305,9 @@ project you haven't touched for a year doesn't fade.
 `remember(type="todo")` creates an open todo. Close it with `update(id, status="done")`,
 or with `status="dropped"` when it's no longer needed. Closed todos leave the session
 context but stay searchable, marked `[done]` / `[dropped]`. "Finished" and "forgotten"
-are not the same thing.
+are not the same thing. `recall("todo", type="todo")` lists the open ones (as many as fit
+in the answer; add `entity=` for one project); with other words it searches open todos,
+and in `mode=deep` closed ones too. The web UI's Memory tab has a status filter.
 
 ## 4. Scopes: shared vs separate memory
 

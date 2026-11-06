@@ -113,7 +113,7 @@ def context(hits: list[Hit], *, max_tokens: int, todos_left: int = 0) -> str:
     max_tokens covers all of it, the "+N older open todos" line included."""
     if not hits:
         return "memory is empty for this scope"
-    more = f"\n+{todos_left} older open todos (recall with type=todo)" if todos_left else ""
+    more = f"\n+{todos_left} older open todos (recall 'todo' with type=todo lists them)" if todos_left else ""
     lines = [hit_line(h, limit=420 if h.memory["pinned"] else 220) for h in hits]
     return budgeted(lines, max_tokens - tokens(more), "(use recall for specific topics)") + more
 
@@ -151,7 +151,7 @@ def brief_overview(store, scope: str | None = None, *, max_tokens: int = 400) ->
             f"{facts} facts on {len(topics)} topics, {len(docs)} shared documents."]
     tail = [hit_line(h, limit=420) for h in pinned]
     if todos:
-        tail.append(f"{todos} open todos (recall with type=todo)")
+        tail.append(f"{todos} open todos (recall 'todo' with type=todo lists them)")
     asked = len(store.pin_requests())
     if asked:  # a count only: the text is not approved yet
         tail.append(f"{asked} pin request(s) wait for the user's approval in the web UI")

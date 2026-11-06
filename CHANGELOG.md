@@ -8,6 +8,10 @@
 - `type=` and `entity=` filters in recall now leave document parts out (they have
   neither), instead of letting them through.
 - When a date in the query had to be widened or dropped, the answer says so.
+- `recall` with `type=todo` and no topic words ("todo", "open todos") lists the open
+  todos, as many as fit; closed ones only in deep mode.
+- Forms of "to be" (sk/cs/en) are stop words: "why was X removed" no longer ranks facts
+  that only share "was".
 - The `cleanup` prompt checks old logs against newer facts: details that were replaced
   later go into the conclusion as history, and only still-open steps become todos.
 - **Only you pin.** Pinned facts reach every session on every machine, so an agent can

@@ -156,11 +156,13 @@ def build(store: Store, *, compat: bool = False, auth_url: str | None = None,
         explain: bool = False,
         scope: str | None = None,
     ) -> str:
-        """Search memory. Returns compact hits (id · type · entity · snippet); use get for full text. Use mode=deep when nothing relevant is found. Time words (last week, v októbri, 2026-10) filter by date."""
+        """Search memory. Returns compact hits (id · type · entity · snippet); use get for full text. Use mode=deep when nothing relevant is found. Time words (last week, v októbri, 2026-10) filter by date. type=todo without topic words lists open todos."""
         deep = mode == "deep"
         res = store.recall(query, scope=default_scope(scope), type=type, entity=entity, deep=deep)
+        # A listing (type=todo with no topic words) shows as many as fit, not just five.
+        limit = 50 if res.listing else 5 if not deep else 12
         return format.recall(res, max_tokens=max_tokens if not deep else max(max_tokens, 1500),
-                             limit=5 if not deep else 12, explain=explain, deep=deep)
+                             limit=limit, explain=explain, deep=deep)
 
     @mcp.tool(structured_output=False, annotations=READ)
     @safe

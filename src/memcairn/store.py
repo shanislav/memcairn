@@ -84,6 +84,7 @@ class RecallResult:
     coverage: float  # confidence: best relevance (0-1) of any single hit
     chunks: list[DocHit] = field(default_factory=list)
     note: str = ""  # e.g. that the query's date was widened
+    listing: bool = False  # no search words: everything matching the filters, best first
 
 
 @dataclass
@@ -120,12 +121,17 @@ def fold(text: str) -> str:
     return unicodedata.normalize("NFC", "".join(out))
 
 
+# Words that ask for a listing rather than name a topic, when a type filter is given
+# ("open todos", "všetky otvorené úlohy").
+LISTING_WORDS = frozenset("open otvorene otevrene all vsetky vsechny list zoznam seznam".split())
+
 # Function words that carry no topic (sk/cs/en); dropped from queries, not from stored text.
 STOPWORDS = frozenset("""
 a aj ako ale alebo by co ci do ho je jak jaky ja k kde kdy ked ktory ktora ktore ku mi na nad
 nie o od po pod pre preco proc pri s sa si so su ta tak tam ten to tu uz v ve vo z za ze zo
+bol bola bolo boli bude budu byt som sme ste byl byla byly byli jsou jsem jste mal mala mali
 an and are can do does for from how in is it of on or the this to was what when where which
-who why with
+who why with were be been has have had will did
 """.split())
 
 
@@ -873,6 +879,11 @@ class Store:
             args.append(entity.strip())
 
         qterms = query_terms(query)
+        if type:  # "todo" with type=todo (or "open todos") names the filter, not a topic
+            kind = fold(type.lower())
+            qterms = [t for t in qterms if not (t.startswith(kind[:4]) or t in LISTING_WORDS)]
+            if type.lower() == "todo" and not (include_old or deep):  # closed ones in deep
+                where.append("(m.status IS NULL OR m.status = 'open')")
         base = """SELECT m.*, e.name AS entity_name, s.key AS scope_key {rank} FROM {src}
                   LEFT JOIN entity e ON e.id = m.entity_id JOIN scope s ON s.id = m.scope_id"""
         def listing() -> RecallResult:
@@ -886,7 +897,7 @@ class Store:
                 hits = [h for h in hits if not h.memory["superseded_by"]]
             if not since:  # a time-only query keeps newest-first
                 hits.sort(key=lambda h: h.score, reverse=True)
-            return RecallResult(hits=hits, coverage=1.0)
+            return RecallResult(hits=hits, coverage=1.0, listing=True)
 
         if not qterms:
             return listing()
