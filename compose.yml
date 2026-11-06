@@ -8,7 +8,7 @@
 services:
   memcairn:
     # A fixed release, not :latest: an update is a step you choose. Or build from a clone: `build: .`
-    image: ghcr.io/shanislav/memcairn:${MEMCAIRN_VERSION:-0.1.2}
+    image: ghcr.io/shanislav/memcairn:${MEMCAIRN_VERSION:-0.2.0}
     restart: unless-stopped
     stop_grace_period: 30s
     environment:  # set these in .env next to this file

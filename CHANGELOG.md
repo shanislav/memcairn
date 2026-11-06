@@ -1,43 +1,53 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-06
 
-- **Fixed: several tool calls at once could fail** ("Error executing tool recall", or a
-  "not found" for an id that exists). The server shares one database connection between
-  the threads that run tool calls; reads now take the same lock as writes.
-- `type=` and `entity=` filters in recall now leave document parts out (they have
-  neither), instead of letting them through.
-- When a date in the query had to be widened or dropped, the answer says so.
-- `recall` with `type=todo` and no topic words ("todo", "open todos") lists the open
-  todos, as many as fit; closed ones only in deep mode.
-- Forms of "to be" (sk/cs/en) are stop words: "why was X removed" no longer ranks facts
-  that only share "was".
-- The `cleanup` prompt checks old logs against newer facts: details that were replaced
-  later go into the conclusion as history, and only still-open steps become todos.
+Better recall in any language, pins only you can set, and a fix for tool calls that ran
+at the same time. **Upgrading:** back up first; the database moves to schema 10 on start
+(a new, empty `pin_request` table) and entries in Chinese, Japanese, Thai or Korean are
+re-indexed once. Agents can no longer pin on their own: they ask, you approve in the web
+UI.
+
+**Fixed**
+- **Several tool calls at once could fail** ("Error executing tool recall", or "not
+  found" for an id that exists). The server shares one database connection between the
+  threads that run tool calls; reads now take the same lock as writes.
+- `type=` and `entity=` filters in recall leave document parts out (they have neither)
+  instead of letting them through.
+- Dates with a day in a query ("3 June, 2023", "April 10, 2023", "3. júna 2023",
+  "3.6.2023") are understood; before, only the month was read, and of the wrong year.
+
+**Security**
 - **Only you pin.** Pinned facts reach every session on every machine, so an agent can
   only ask: `pinned=true` from an agent (or a machine token) stores the fact unpinned and
   adds a pin request, and changing the text of a pinned fact unpins it until approved
   again. Approve or reject requests at the top of the web UI overview; the session
   overview shows only how many wait.
-- Dates with a day in a query ("3 June, 2023", "April 10, 2023", "3. júna 2023",
-  "3.6.2023") are understood; before, only the month was read, and of the wrong year.
-- A query date with nothing noted on it no longer returns nothing: recall looks a week
-  either side, then at any time (the date said when something happened, not when it was
-  written down).
+
+**Recall**
 - **Chinese, Japanese, Thai and Korean** are searched without vectors too: text in
   scripts without spaces is indexed as overlapping character pairs (before, a whole
-  sentence was one word). Existing databases are re-indexed once on start.
+  sentence was one word).
 - **Word weights from your data** (IDF): a word in many facts counts less than a rare
-  one, in any language, instead of every word counting the same.
+  one, in any language, instead of every word counting the same. Forms of "to be"
+  (sk/cs/en) are stop words.
 - Deep mode ranks facts in another language better (similarity also counts relative to
   the best match).
-- Public benchmarks: retrieval on LoCoMo (`bench/locomo.py`) and a synthetic
-  nine-language set (`bench/multilingual.py`); results in BENCHMARK.md.
+- A query date with nothing noted on it no longer returns nothing: recall looks a week
+  either side, then at any time, and says so in the answer.
+- `recall("todo", type="todo")` lists the open todos, as many as fit; with other words
+  it searches open todos, closed ones only in deep mode.
+- The `cleanup` prompt checks old logs against newer facts: details replaced later go
+  into the conclusion as history, and only still-open steps become todos.
+
+**Measured**
+- Public benchmarks: retrieval on LoCoMo (`bench/locomo.py`, 53% → 60% hit@5) and a
+  synthetic nine-language set (`bench/multilingual.py`, 76% → 92% plain recall); results
+  in [BENCHMARK.md](BENCHMARK.md).
 - Tests for several writers on one database at once and for a failure halfway through
   a write.
-- Docs: [ROADMAP.md](ROADMAP.md) (including what teams would need), current numbers
-  everywhere, a section on search and languages, clearer notes that scopes are not
-  permissions.
+- Docs: [ROADMAP.md](ROADMAP.md) (including what teams would need), a section on search
+  and languages, clearer notes that scopes are not permissions.
 
 ## 0.1.2 — 2026-11-06
 

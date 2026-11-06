@@ -1,6 +1,6 @@
 [project]
 name = "memcairn"
-version = "0.1.2"
+version = "0.2.0"
 description = "Self-hosted long-term memory for Claude Code and other MCP clients, shared by all your machines"
 readme = "README.md"
 license = "MIT"
